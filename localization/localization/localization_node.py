@@ -26,7 +26,7 @@ class LocalizationNode(Node):
 
         # Load the Map data to RAM memory, loading it if we have calculated before
         self.map_loaded = False
-        self.map_folder = "/home/vini/Desktop/map_data"
+        self.map_folder = os.path.join(os.getenv("HOME"), "Desktop/map_data")
         self.map_name = "map.pcd"
         self.map_T_global_name = "map_T_global.npy"
         if (os.path.exists(os.path.join(self.map_folder, self.map_name))):
@@ -42,11 +42,11 @@ class LocalizationNode(Node):
                 self.map_folder, self.map_name)
             self.get_logger().info('Map data made successfully!')
         self.map_loaded = True
-        print("map_T_global")
-        print(self.map_T_global)
+        self.map_t_global = self.map_T_global[:3, 3]
+        self.map_R_global = self.map_T_global[:3, :3]
 
         # Parameters
-        self.icp_conversion_threshold = 0.05  # [m]
+        self.icp_conversion_threshold = 0.5  # [m]
         self.bbox_side = 20.0  # [m]
         self.current_compass = None
 
@@ -91,17 +91,14 @@ class LocalizationNode(Node):
 
         return T
 
-    def convertGpsCompassToMatrix(self, gps_msg: NavSatFix) -> np.ndarray:
-        # Convert the GPS and compass quaternion to a 4x4 transformation matrix
-        q = R.from_euler('z', self.current_compass).as_quat()
-        utm_x, utm_y, _, _ = utm.from_latlon(
-            gps_msg.latitude, gps_msg.longitude)
-        t = np.array([utm_x, utm_y, gps_msg.altitude])
-        print("t")
-        print(t)
-        T = self.convertQuaternionTranslationToMatrix(q, t)
+    def convertGpsCompassToMatrix(self, gps_msg: NavSatFix) -> list[np.ndarray, np.ndarray]:
+        # Convert the compass yaw angle into rotation matrix
+        compass_R = R.from_euler('xyz', [0, 0, self.current_compass]).as_matrix()
+        # Convert the GPS latitude, longitude and altitude to UTM coordinates
+        utm_e, utm_n, _, _ = utm.from_latlon(gps_msg.latitude, gps_msg.longitude)
+        t = np.array([utm_e, utm_n, gps_msg.altitude])
 
-        return T
+        return compass_R, t        
 
     def buildNavOdomMsg(self, T: np.ndarray, frame_id: str, child_frame_id: str, stamp: float) -> Odometry:
         odom_msg = Odometry()
@@ -131,10 +128,12 @@ class LocalizationNode(Node):
             header=header, points=np.asarray(self.map_original.points)))
 
     def compassCallback(self, compass_msg: Float64):
-        self.current_compass = np.radians(compass_msg.data - 90.0)
+        self.current_compass = np.radians(90 - compass_msg.data)
         # Wrap to -PI to PI
         if self.current_compass > np.pi:
             self.current_compass -= 2*np.pi
+        elif self.current_compass < -np.pi:
+            self.current_compass += 2*np.pi
 
     def syncCallback(self, pointcloud_msg: PointCloud2, odometry_msg: Odometry, gps_msg: NavSatFix):
         if not self.map_loaded:
@@ -159,26 +158,19 @@ class LocalizationNode(Node):
         cropped_scan = input_scan.crop(bbox_scan)
 
         # Calculate the coarse pose in global frame from GPS and compass class member from async callback
-        global_T_sensor = self.convertGpsCompassToMatrix(gps_msg)
+        global_R_sensor, global_t_sensor = self.convertGpsCompassToMatrix(gps_msg)
 
         # Calculate the coarse pose in map frame from the global pose
-        map_T_sensor = self.map_T_global @ global_T_sensor
-        print("-------------------")
-        print("map_T_sensor")
-        print(map_T_sensor)
-        print("map_T_global")
-        print(self.map_T_global)
-        print("global_T_sensor")
-        print(global_T_sensor)
-        map_R_sensor = map_T_sensor[:3, :3]
-        map_t_sensor = map_T_sensor[:3, 3]
-        print("map_t_sensor")
-        print(map_t_sensor)
-
-        # Transform the cropped point cloud region to the sensor frame
+        # This is not the right methodology for working with 4x4 matrices, but it is fine for now
+        map_T_sensor = np.eye(4)
+        map_R_sensor = self.map_R_global @ global_R_sensor
+        map_t_sensor = self.map_R_global @ (self.map_t_global + global_t_sensor)
+        map_T_sensor[:3, :3] = map_R_sensor
+        map_T_sensor[:3, 3] = map_t_sensor
+        # Transform the cropped point cloud region to the map frame
         cropped_scan.transform(map_T_sensor)
 
-        # Crop the map around the robot with a bounding box in the loc frame
+        # Crop the map region around the robot with a bounding box in the map frame
         map_bbox = o3d.geometry.OrientedBoundingBox(
             center=map_t_sensor, R=map_R_sensor,
             extent=np.array([self.bbox_side, self.bbox_side, self.bbox_side]))
@@ -192,29 +184,29 @@ class LocalizationNode(Node):
             cropped_scan, cropped_map, self.icp_conversion_threshold, np.eye(
                 4),
             o3d.pipelines.registration.TransformationEstimationPointToPoint(),
-            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=30))
+            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=300))
 
         # Check if we had convergence in the fine_registration_adjustment, and then apply fine tune to the map_T_sensor matrix
         # TODO: Implement the check to this fine_registration_adjustment
         self.map_T_sensor = fine_registration_adjustment.transformation @ map_T_sensor
 
-        # Publish the coarse class memeber map_T_sensor transformation as Odom message
-        self.map_T_sensor_coarse_pub.publish(self.buildNavOdomMsg(
-            map_T_sensor, 'map', 'sensor', odometry_msg.header.stamp))
         # Publish the fine class memeber map_T_sensor transformation as Odom message
         self.map_T_sensor_pub.publish(self.buildNavOdomMsg(
             self.map_T_sensor, 'map', 'sensor', odometry_msg.header.stamp))
+
+        end = time()
+        self.get_logger().info('Callback time: {}'.format(end-start))
         
+        # Publish the coarse class memeber map_T_sensor transformation as Odom message
+        self.map_T_sensor_coarse_pub.publish(self.buildNavOdomMsg(
+            map_T_sensor, 'map', 'sensor', odometry_msg.header.stamp))
         # Publish the cropped scan in the map frame
-        # cropped_scan.transform(fine_registration_adjustment.transformation)
+        cropped_scan.transform(fine_registration_adjustment.transformation)
         header = Header()
         header.stamp = odometry_msg.header.stamp
         header.frame_id = 'map'
         self.cropped_scan_pub.publish(pc2.create_cloud_xyz32(
             header=header, points=np.asarray(cropped_scan.points)))
-
-        end = time()
-        self.get_logger().info('Callback time: {}'.format(end-start))
 
 
 def main(args=None):

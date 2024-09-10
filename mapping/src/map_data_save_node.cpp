@@ -44,12 +44,12 @@ public:
         createDirectory(folder_save_path_);
 
         // Create the txt file to save the poses received by odometry
-        odometry_file_path_ = folder_save_path_ + "/odometry_poses.txt";
-        createTextFile(odometry_file_path_, "tx ty tz qx qy qz qw\n");
+        odometry_file_path_ = folder_save_path_ + "/odometry_positions.txt";
+        createTextFile(odometry_file_path_, "tx ty tz\n");
 
         // Create the txt file to save the GPS data plus the IMU data for poses
         gps_imu_poses_file_path_ = folder_save_path_ + "/gps_imu_poses.txt";
-        createTextFile(gps_imu_poses_file_path_, "lat lon alt qx qy qz qw\n");
+        createTextFile(gps_imu_poses_file_path_, "lat lon alt r p y\n");
 
         // Initialize the point cloud to save the map
         cloud_map_frame_ = pcl::PointCloud<pcl::PointXYZRGB>::Ptr(new pcl::PointCloud<pcl::PointXYZRGB>);
@@ -60,10 +60,15 @@ public:
             10,
             [this](const std_msgs::msg::Float64::SharedPtr msg) {
                 // Invert the yaw based on Ardupilot convention that clockwise is positive
-                current_compass_yaw_ = (msg->data - 90.0) * M_PI / 180.0;
+                current_compass_yaw_ = (90.0 - msg->data) * M_PI / 180.0;
+                // Make sure the yaw is in the range -M_PI to M_PI
                 if (current_compass_yaw_ > M_PI)
                 {
-                    current_compass_yaw_ -= 2 * M_PI; // -M_PI to M_PI [RAD]
+                    current_compass_yaw_ -= 2 * M_PI;
+                }
+                else if (current_compass_yaw_ < -M_PI)
+                {
+                    current_compass_yaw_ += 2 * M_PI;
                 }
             });
 
@@ -112,16 +117,12 @@ private:
         }
 
         // Write a line to the odometry file
-        // It should be tx ty tz qx qy qz qw
-        std::ofstream poses_file(odometry_file_path_, std::ios::app);
-        poses_file << odom_msg->pose.pose.position.x << " "
+        // It should be tx ty tz
+        std::ofstream odom_positions_file(odometry_file_path_, std::ios::app);
+        odom_positions_file << odom_msg->pose.pose.position.x << " "
                    << odom_msg->pose.pose.position.y << " "
-                   << odom_msg->pose.pose.position.z << " "
-                   << odom_msg->pose.pose.orientation.x << " "
-                   << odom_msg->pose.pose.orientation.y << " "
-                   << odom_msg->pose.pose.orientation.z << " "
-                   << odom_msg->pose.pose.orientation.w << std::endl;
-        poses_file.close();
+                   << odom_msg->pose.pose.position.z << std::endl;
+        odom_positions_file.close();
 
         // Get the RPY from the Odometry quaternion with tf2
         tf2::Quaternion q(odom_msg->pose.pose.orientation.x,
@@ -135,16 +136,15 @@ private:
         tf2::Quaternion q_compass;
         q_compass.setRPY(roll, pitch, current_compass_yaw_);
         // Write a line to the GPS IMU file
-        // It should be lat lon alt qx qy qz qw
+        // It should be lat lon alt r p y
         std::ofstream gps_imu_poses_file(gps_imu_poses_file_path_, std::ios::app);
         gps_imu_poses_file << std::fixed << std::setprecision(8)
                            << gps_msg->latitude << " "
                            << gps_msg->longitude << " "
                            << gps_msg->altitude << " "
-                           << q_compass.x() << " "
-                           << q_compass.y() << " "
-                           << q_compass.z() << " "
-                           << q_compass.w() << std::endl;
+                           << roll << " "
+                           << pitch << " "
+                           << current_compass_yaw_ << std::endl;
         gps_imu_poses_file.close();
 
         // End timer to measure
