@@ -17,7 +17,9 @@ from .optimize_global_map_pose import make_map_data
 
 
 class LocalizationNode(Node):
-
+    #####################################################################
+    # region Initialization
+    #####################################################################
     def __init__(self):
         super().__init__('localization_node')
 
@@ -85,6 +87,11 @@ class LocalizationNode(Node):
 
         self.get_logger().info('Localization node started!')
 
+    #####################################################################
+    # endregion Initialization
+    #####################################################################
+    # region Conversions
+    #####################################################################
     def convertQuaternionTranslationToMatrix(self, q: np.ndarray, t: np.ndarray) -> np.ndarray:
         # Convert quaternion and translation to a 4x4 transformation matrix
         T = np.eye(4)
@@ -121,6 +128,11 @@ class LocalizationNode(Node):
 
         return odom_msg
 
+    #####################################################################
+    # endregion Conversions
+    #####################################################################
+    # region Callbacks
+    #####################################################################
     def publishMapCallback(self):
         if not self.map_loaded:
             self.get_logger().warn('Map not loaded yet, not publishing ...')
@@ -132,7 +144,7 @@ class LocalizationNode(Node):
         self.map_pub.publish(pc2.create_cloud_xyz32(
             header=header, points=np.asarray(self.map_original.points)))
 
-    def compassCallback(self, compass_msg: Float64):
+    def compassCallback(self, compass_msg: Float64) -> None:
         self.current_compass = np.radians(90 - compass_msg.data)
         # Wrap to -PI to PI
         if self.current_compass > np.pi:
@@ -140,7 +152,7 @@ class LocalizationNode(Node):
         elif self.current_compass < -np.pi:
             self.current_compass += 2*np.pi
 
-    def syncCallback(self, pointcloud_msg: PointCloud2, odometry_msg: Odometry, gps_msg: NavSatFix):
+    def syncCallback(self, pointcloud_msg: PointCloud2, odometry_msg: Odometry, gps_msg: NavSatFix) -> None:
         if not self.map_loaded:
             self.get_logger().warn('Map not loaded yet, not localizing ...')
             return
@@ -213,6 +225,9 @@ class LocalizationNode(Node):
         header.frame_id = 'map'
         self.cropped_scan_pub.publish(pc2.create_cloud_xyz32(
             header=header, points=np.asarray(cropped_scan.points)))
+    #####################################################################
+    # endregion Callbacks
+    #####################################################################
 
 
 def main(args=None):
