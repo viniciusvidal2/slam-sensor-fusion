@@ -105,10 +105,9 @@ class MapBuilder:
         mean_rpy = np.mean(rpy_angles, axis=0)
         map_R_global = R.from_euler('xyz', mean_rpy).as_matrix()
         # Create the best transformation matrix
-        # self.map_T_global = np.eye(4)
-        # self.map_T_global[:3, :3] = map_R_global
-        # self.map_T_global[:3, 3] = map_t_global
-        self.map_T_global = map_T_global_list[0]
+        self.map_T_global = np.eye(4)
+        self.map_T_global[:3, :3] = map_R_global
+        self.map_T_global[:3, 3] = map_t_global
 
         return self.map_T_global
 
