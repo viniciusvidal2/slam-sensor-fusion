@@ -49,7 +49,7 @@ class LocalizationNode(Node):
 
         # Parameters
         self.icp_conversion_threshold = 0.5  # [m]
-        bbox_side = 13.0  # [m]
+        bbox_side = 11.0  # [m]
         self.min_boundaries = [-bbox_side/2, -bbox_side/2, -bbox_side/2]
         self.max_boundaries = [bbox_side/2, bbox_side/2, bbox_side/2]
         self.extent = np.array([bbox_side, bbox_side, bbox_side])
@@ -65,12 +65,12 @@ class LocalizationNode(Node):
             self, NavSatFix, '/mavros/global_position/global')
         self.sync = ApproximateTimeSynchronizer(
             [self.pointcloud_sub, self.odometry_sub, self.gps_sub],
-            queue_size=10,
+            queue_size=1,
             slop=0.1
         )
         self.sync.registerCallback(self.syncCallback)
         self.compass_sub_ = self.create_subscription(
-            Float64, '/mavros/global_position/compass_hdg', self.compassCallback, 10)
+            Float64, '/mavros/global_position/compass_hdg', self.compassCallback, 1)
 
         # Publishers
         self.map_T_sensor_pub = self.create_publisher(
@@ -92,6 +92,18 @@ class LocalizationNode(Node):
     #####################################################################
     # region Conversions
     #####################################################################
+    def readFilterPtcRegionPoints(self, ptc_msg: PointCloud2) -> np.ndarray:
+        points = pc2.read_points(
+            ptc_msg, field_names=("x", "y", "z"), skip_nans=True)
+        x_min, x_max = self.min_boundaries[0], self.max_boundaries[0]
+        y_min, y_max = self.min_boundaries[1], self.max_boundaries[1]
+        z_min, z_max = self.min_boundaries[2], self.max_boundaries[2]
+        points = np.array([[p[0], p[1], p[2]] for p in points])
+
+        return points[(points[:, 0] >= x_min) & (points[:, 0] <= x_max) &
+                      (points[:, 1] >= y_min) & (points[:, 1] <= y_max) &
+                      (points[:, 2] >= z_min) & (points[:, 2] <= z_max)]
+
     def convertQuaternionTranslationToMatrix(self, q: np.ndarray, t: np.ndarray) -> np.ndarray:
         # Convert quaternion and translation to a 4x4 transformation matrix
         T = np.eye(4)
@@ -128,6 +140,19 @@ class LocalizationNode(Node):
 
         return odom_msg
 
+    def computeGpsCoarsePoseInMapFrame(self, gps_msg: NavSatFix) -> np.ndarray:
+        # Calculate the coarse pose in global frame from GPS and compass class member from async callback
+        global_R_sensor, global_t_sensor = self.convertGpsCompassToMatrices(
+            gps_msg)
+        # Calculate the coarse pose in map frame from the global pose
+        # This is not the right methodology for working with 4x4 matrices, but it is fine for now
+        map_T_sensor = np.eye(4)
+        map_T_sensor[:3, :3] = self.map_R_global @ global_R_sensor
+        map_T_sensor[:3, 3] = self.map_R_global @ (
+            self.map_t_global + global_t_sensor)
+
+        return map_T_sensor
+
     #####################################################################
     # endregion Conversions
     #####################################################################
@@ -161,36 +186,20 @@ class LocalizationNode(Node):
             return
         self.get_logger().info('Localization callback called!')
 
+        # Obtain the coarse pose from GPS and compass in the map frame, based on the global frame information
+        map_T_sensor = self.computeGpsCoarsePoseInMapFrame(gps_msg)
+
         # Convert the PointCloud2 message to Open3D point cloud
         start = time()
-        original_points = pc2.read_points(
-            pointcloud_msg, field_names=("x", "y", "z", "intensity"), skip_nans=True)
-        points = np.array([[p[0], p[1], p[2]] for p in original_points])
-        input_scan = o3d.geometry.PointCloud()
-        input_scan.points = o3d.utility.Vector3dVector(points)
-        # Crop the incoming point cloud around the robot with a bounding box
-        bbox_scan = o3d.geometry.AxisAlignedBoundingBox(
-            min_bound=self.min_boundaries, max_bound=self.max_boundaries)
-        cropped_scan = input_scan.crop(bbox_scan)
-
-        # Calculate the coarse pose in global frame from GPS and compass class member from async callback
-        global_R_sensor, global_t_sensor = self.convertGpsCompassToMatrices(
-            gps_msg)
-
-        # Calculate the coarse pose in map frame from the global pose
-        # This is not the right methodology for working with 4x4 matrices, but it is fine for now
-        map_T_sensor = np.eye(4)
-        map_R_sensor = self.map_R_global @ global_R_sensor
-        map_t_sensor = self.map_R_global @ (
-            self.map_t_global + global_t_sensor)
-        map_T_sensor[:3, :3] = map_R_sensor
-        map_T_sensor[:3, 3] = map_t_sensor
+        cropped_scan = o3d.geometry.PointCloud()
+        cropped_scan.points = o3d.utility.Vector3dVector(
+            self.readFilterPtcRegionPoints(ptc_msg=pointcloud_msg))
         # Transform the cropped point cloud region to the map frame
         cropped_scan.transform(map_T_sensor)
 
         # Crop the map region around the robot with a bounding box in the map frame
         map_bbox = o3d.geometry.OrientedBoundingBox(
-            center=map_t_sensor, R=map_R_sensor,
+            center=map_T_sensor[:3, 3], R=map_T_sensor[:3, :3],
             extent=self.extent)
         cropped_map = self.map_original.crop(map_bbox)
         if (len(cropped_map.points) == 0):
@@ -198,20 +207,19 @@ class LocalizationNode(Node):
             return
 
         # Apply ICP to align the point clouds
-        fine_registration_adjustment = o3d.pipelines.registration.registration_icp(
+        lidar_pose_adjustment = o3d.pipelines.registration.registration_icp(
             cropped_scan, cropped_map, self.icp_conversion_threshold, np.eye(
                 4),
             o3d.pipelines.registration.TransformationEstimationPointToPoint(),
-            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=50))
+            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=10))
 
-        # Check if we had convergence in the fine_registration_adjustment, and then apply fine tune to the map_T_sensor matrix
-        # TODO: Implement the check to this fine_registration_adjustment
-        self.map_T_sensor = fine_registration_adjustment.transformation @ map_T_sensor
+        # Check if we had convergence in the lidar_pose_adjustment, and then apply fine tune to the map_T_sensor matrix
+        # TODO: Implement the check to this lidar_pose_adjustment
+        self.map_T_sensor = lidar_pose_adjustment.transformation @ map_T_sensor
 
-        # Publish the fine class memeber map_T_sensor transformation as Odom message
+        # Publish the fine class member map_T_sensor transformation as Odom message
         self.map_T_sensor_pub.publish(self.buildNavOdomMsg(
             self.map_T_sensor, 'map', 'sensor', odometry_msg.header.stamp))
-
         end = time()
         self.get_logger().info('Callback time: {}'.format(end-start))
 
@@ -219,12 +227,13 @@ class LocalizationNode(Node):
         self.map_T_sensor_coarse_pub.publish(self.buildNavOdomMsg(
             map_T_sensor, 'map', 'sensor', odometry_msg.header.stamp))
         # Publish the cropped scan in the map frame
-        cropped_scan.transform(fine_registration_adjustment.transformation)
+        cropped_scan.transform(lidar_pose_adjustment.transformation)
         header = Header()
         header.stamp = odometry_msg.header.stamp
         header.frame_id = 'map'
         self.cropped_scan_pub.publish(pc2.create_cloud_xyz32(
             header=header, points=np.asarray(cropped_scan.points)))
+
     #####################################################################
     # endregion Callbacks
     #####################################################################
