@@ -31,41 +31,19 @@ class MapBuilder:
 
         return odom_positions, count
 
-    def load_gps_imu_poses(self) -> np.ndarray:
+    def load_global_poses(self) -> list[np.ndarray, np.ndarray]:
         gps_imu_poses = np.loadtxt(
             fname=self.gps_imu_data_file_path, skiprows=1)
-        # Convert the poses to 4x4 transformation matrices
         # The incoming code is lat lon alt r p y
-        global_T_map_list = list()
+        global_t_map_list = list()
+        global_rpy_map_list = list()
         for pose in gps_imu_poses:
             # Convert quaternion to rotation matrix
-            rot = R.from_euler("xyz", pose[3:7]).as_matrix()
+            global_rpy_map_list.append(pose[3:7])
             utm_x, utm_y, _, _ = utm.from_latlon(pose[0], pose[1])
-            # Create the 4x4 transformation matrix
-            T = np.eye(4)
-            T[:3, :3] = rot
-            T[:3, 3] = np.asarray([utm_x, utm_y, pose[2]])
-            global_T_map_list.append(T)
+            global_t_map_list.append(np.asarray([utm_x, utm_y, pose[2]]))
 
-        return global_T_map_list
-
-    def load_gps_imu_poses_inverse(self) -> np.ndarray:
-        gps_imu_poses = np.loadtxt(
-            fname=self.gps_imu_data_file_path, skiprows=1)
-        # Convert the poses to 4x4 transformation matrices
-        # The incoming code is lat lon alt r p y
-        map_T_global_list = list()
-        for pose in gps_imu_poses:
-            # Convert quaternion to rotation matrix
-            rot = R.from_euler("xyz", pose[3:7]).as_matrix()
-            utm_x, utm_y, _, _ = utm.from_latlon(pose[0], pose[1])
-            # Create the 4x4 transformation matrix
-            T = np.eye(4)
-            T[:3, :3] = rot.T
-            T[:3, 3] = -np.asarray([utm_x, utm_y, pose[2]])
-            map_T_global_list.append(T)
-
-        return map_T_global_list
+        return global_rpy_map_list, global_t_map_list
 
     def create_save_map(self, map_pcd_name: str) -> bool:
         # Search for all pcd files in the map folder
@@ -91,19 +69,18 @@ class MapBuilder:
         # Load the odometry poses
         _, n_valid_poses = self.load_odom_positions()
         # Load the GPS/IMU poses
-        map_T_global_list = self.load_gps_imu_poses_inverse()
+        global_rpy_map, global_t_map = self.load_global_poses()
         # Get the relative transformations from the global to map frames
-        n_poses = min(n_valid_poses, len(map_T_global_list),
+        n_poses = min(n_valid_poses, len(global_rpy_map),
                       self.max_num_poses_to_optimize)
-        map_T_global_list = map_T_global_list[:n_poses]
+        global_rpy_map = global_rpy_map[:n_poses]
+        global_t_map = global_t_map[:n_poses]
         # Get the mean translation
-        map_t_global = np.mean([T[:3, 3] for T in map_T_global_list], axis=0)
+        map_t_global = -np.mean(global_t_map, axis=0)
         # Get the RPY angles for each relative transformation
-        rpy_angles = [R.from_matrix(T[:3, :3]).as_euler('xyz')
-                      for T in map_T_global_list]
         # Get the mean RPY angles
-        mean_rpy = np.mean(rpy_angles, axis=0)
-        map_R_global = R.from_euler('xyz', mean_rpy).as_matrix()
+        mean_rpy = np.mean(global_rpy_map, axis=0)
+        map_R_global = R.from_euler('xyz', mean_rpy).as_matrix().T
         # Create the best transformation matrix
         self.map_T_global = np.eye(4)
         self.map_T_global[:3, :3] = map_R_global
