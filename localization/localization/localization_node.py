@@ -47,13 +47,17 @@ class LocalizationNode(Node):
         self.map_t_global = self.map_T_global[:3, 3]
         self.map_R_global = self.map_T_global[:3, :3]
 
-        # Parameters
+        # Cloud, GPS and Compass parameters
         self.icp_conversion_threshold = 0.5  # [m]
-        bbox_side = 11.0  # [m]
-        self.min_boundaries = [-bbox_side/2, -bbox_side/2, -bbox_side/2]
+        bbox_side = 15.0  # [m]
+        self.min_boundaries = [0, -bbox_side/2, 0]
         self.max_boundaries = [bbox_side/2, bbox_side/2, bbox_side/2]
         self.extent = np.array([bbox_side, bbox_side, bbox_side])
         self.current_compass = None
+
+        # Odometry parameters
+        self.map_T_sensor = np.eye(4)
+        self.odom_previous_T_sensor = np.eye(4)
 
         # Create subscribers
         # Point cloud will be in current sensor frame, and odometry from current sensor to loc frames
@@ -65,7 +69,7 @@ class LocalizationNode(Node):
             self, NavSatFix, '/mavros/global_position/global')
         self.sync = ApproximateTimeSynchronizer(
             [self.pointcloud_sub, self.odometry_sub, self.gps_sub],
-            queue_size=1,
+            queue_size=10,
             slop=0.1
         )
         self.sync.registerCallback(self.syncCallback)
@@ -76,6 +80,10 @@ class LocalizationNode(Node):
         self.map_T_sensor_pub = self.create_publisher(
             Odometry, '/localization/map_T_sensor', 10)
         self.map_T_sensor_coarse_pub = self.create_publisher(
+            Odometry, '/localization/map_T_sensor_coarse', 10)
+        self.odom_T_sensor_pub = self.create_publisher(
+            Odometry, '/localization/odom_T_sensor', 10)
+        self.map_T_sensor_gps_pub = self.create_publisher(
             Odometry, '/localization/map_T_sensor_gps', 10)
         self.map_pub = self.create_publisher(
             PointCloud2, '/localization/map', 10)
@@ -103,15 +111,6 @@ class LocalizationNode(Node):
         return points[(points[:, 0] >= x_min) & (points[:, 0] <= x_max) &
                       (points[:, 1] >= y_min) & (points[:, 1] <= y_max) &
                       (points[:, 2] >= z_min) & (points[:, 2] <= z_max)]
-
-    def convertQuaternionTranslationToMatrix(self, q: np.ndarray, t: np.ndarray) -> np.ndarray:
-        # Convert quaternion and translation to a 4x4 transformation matrix
-        T = np.eye(4)
-        r = R.from_quat(q).as_matrix()
-        T[0:3, 0:3] = r
-        T[:3, 3] = t
-
-        return T
 
     def convertGpsCompassToMatrices(self, gps_msg: NavSatFix) -> list[np.ndarray, np.ndarray]:
         # Convert the compass yaw angle into rotation matrix
@@ -153,6 +152,26 @@ class LocalizationNode(Node):
 
         return map_T_sensor
 
+    def computeModelPosePredictionFromOdometry(self, odometry_msg: Odometry) -> list[np.ndarray, np.ndarray]:
+        odom_current_q_sensor = np.array([odometry_msg.pose.pose.orientation.x, odometry_msg.pose.pose.orientation.y,
+                                         odometry_msg.pose.pose.orientation.z, odometry_msg.pose.pose.orientation.w])
+        odom_current_t_sensor = np.array([odometry_msg.pose.pose.position.x, odometry_msg.pose.pose.position.y,
+                                         odometry_msg.pose.pose.position.z])
+
+        odom_current_T_sensor = np.eye(4)
+        odom_current_T_sensor[0:3, 0:3] = R.from_quat(
+            odom_current_q_sensor).as_matrix()
+        odom_current_T_sensor[:3, 3] = odom_current_t_sensor
+
+        # Calculate the map_current_T_map_previous transformation matrix
+        odom_current_T_odom_previous = odom_current_T_sensor @ np.linalg.inv(
+            self.odom_previous_T_sensor)
+
+        # Return the:
+        # Pose in odom frame for the current sensor frame
+        # Pose prediction in map frame using the relative pose found in odom frame between previous and current frame readings
+        return odom_current_T_sensor, odom_current_T_odom_previous @ self.map_T_sensor
+
     #####################################################################
     # endregion Conversions
     #####################################################################
@@ -186,20 +205,27 @@ class LocalizationNode(Node):
             return
         self.get_logger().info('Localization callback called!')
 
-        # Obtain the coarse pose from GPS and compass in the map frame, based on the global frame information
-        map_T_sensor = self.computeGpsCoarsePoseInMapFrame(gps_msg)
+        # Obtain the odometry prediction for the pose both in map and odom frames
+        odom_current_T_sensor, map_current_T_sensor_odom = self.computeModelPosePredictionFromOdometry(
+            odometry_msg)
 
-        # Convert the PointCloud2 message to Open3D point cloud
+        # Obtain the coarse pose from GPS and compass in the map frame, based on the global frame information
+        map_current_T_sensor_gps = self.computeGpsCoarsePoseInMapFrame(gps_msg)
+
+        # Get the coarse transformation based on a simple average of the two readings
+        gps_compass_weight = 0.2
+        model_weight = 1 - gps_compass_weight
+        map_T_sensor_coarse = gps_compass_weight * map_current_T_sensor_gps + \
+            model_weight * map_current_T_sensor_odom
+
+        # Convert the PointCloud2 message to Open3D point cloud and get the cropped region out of it
         start = time()
         cropped_scan = o3d.geometry.PointCloud()
         cropped_scan.points = o3d.utility.Vector3dVector(
             self.readFilterPtcRegionPoints(ptc_msg=pointcloud_msg))
-        # Transform the cropped point cloud region to the map frame
-        cropped_scan.transform(map_T_sensor)
-
         # Crop the map region around the robot with a bounding box in the map frame
         map_bbox = o3d.geometry.OrientedBoundingBox(
-            center=map_T_sensor[:3, 3], R=map_T_sensor[:3, :3],
+            center=map_T_sensor_coarse[:3, 3], R=map_T_sensor_coarse[:3, :3],
             extent=self.extent)
         cropped_map = self.map_original.crop(map_bbox)
         if (len(cropped_map.points) == 0):
@@ -207,25 +233,36 @@ class LocalizationNode(Node):
             return
 
         # Apply ICP to align the point clouds
+        cropped_scan.transform(map_T_sensor_coarse)
         lidar_pose_adjustment = o3d.pipelines.registration.registration_icp(
-            cropped_scan, cropped_map, self.icp_conversion_threshold, np.eye(
-                4),
+            cropped_scan, cropped_map, self.icp_conversion_threshold, np.eye(4),
             o3d.pipelines.registration.TransformationEstimationPointToPoint(),
-            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=10))
+            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=50))
 
         # Check if we had convergence in the lidar_pose_adjustment, and then apply fine tune to the map_T_sensor matrix
         # TODO: Implement the check to this lidar_pose_adjustment
-        self.map_T_sensor = lidar_pose_adjustment.transformation @ map_T_sensor
+        print("ICP translation:")
+        print(lidar_pose_adjustment.transformation[:3, 3])
+        self.map_T_sensor = lidar_pose_adjustment.transformation @ map_T_sensor_coarse
 
         # Publish the fine class member map_T_sensor transformation as Odom message
         self.map_T_sensor_pub.publish(self.buildNavOdomMsg(
             self.map_T_sensor, 'map', 'sensor', odometry_msg.header.stamp))
-        end = time()
-        self.get_logger().info('Callback time: {}'.format(end-start))
 
-        # Publish the coarse class memeber map_T_sensor transformation as Odom message
+        # Update the previous pose to be used in odometry prediction
+        self.odom_previous_T_sensor = odom_current_T_sensor
+
+        # Log time taken to process the callback
+        end = time()
+        self.get_logger().info('Callback time: {}'.format(end - start))
+
+        # Publish the coarse poses as Odometry messages
         self.map_T_sensor_coarse_pub.publish(self.buildNavOdomMsg(
-            map_T_sensor, 'map', 'sensor', odometry_msg.header.stamp))
+            map_T_sensor_coarse, 'map', 'sensor', odometry_msg.header.stamp))
+        self.odom_T_sensor_pub.publish(self.buildNavOdomMsg(
+            odom_current_T_sensor, 'map', 'sensor', odometry_msg.header.stamp))
+        self.map_T_sensor_gps_pub.publish(self.buildNavOdomMsg(
+            map_current_T_sensor_gps, 'map', 'sensor_gps', odometry_msg.header.stamp))
         # Publish the cropped scan in the map frame
         cropped_scan.transform(lidar_pose_adjustment.transformation)
         header = Header()
