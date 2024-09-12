@@ -43,6 +43,8 @@ class LocalizationNode(Node):
             self.map_original, self.map_T_global = make_map_data(
                 self.map_folder, self.map_name)
             self.get_logger().info('Map data made successfully!')
+        # Apply a voxel grid to the map to reduce the number of points
+        self.map_original = self.map_original.voxel_down_sample(voxel_size=0.1)
         self.map_loaded = True
         self.map_t_global = self.map_T_global[:3, 3]
         self.map_R_global = self.map_T_global[:3, :3]
@@ -51,8 +53,8 @@ class LocalizationNode(Node):
         self.icp_conversion_threshold = 0.5  # [m]
         bbox_side = 15.0  # [m]
         self.min_boundaries = [0, -bbox_side/2, 0]
-        self.max_boundaries = [bbox_side/2, bbox_side/2, bbox_side/2]
-        self.extent = np.array([bbox_side, bbox_side, bbox_side])
+        self.max_boundaries = [bbox_side, bbox_side/2, bbox_side/2]
+        self.extent = np.array([bbox_side*2, bbox_side, bbox_side])
         self.current_compass = None
 
         # Odometry parameters
@@ -235,9 +237,10 @@ class LocalizationNode(Node):
         # Apply ICP to align the point clouds
         cropped_scan.transform(map_T_sensor_coarse)
         lidar_pose_adjustment = o3d.pipelines.registration.registration_icp(
-            cropped_scan, cropped_map, self.icp_conversion_threshold, np.eye(4),
+            cropped_scan, cropped_map, self.icp_conversion_threshold, np.eye(
+                4),
             o3d.pipelines.registration.TransformationEstimationPointToPoint(),
-            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=50))
+            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=10))
 
         # Check if we had convergence in the lidar_pose_adjustment, and then apply fine tune to the map_T_sensor matrix
         # TODO: Implement the check to this lidar_pose_adjustment
