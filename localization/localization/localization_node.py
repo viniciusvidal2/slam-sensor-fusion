@@ -114,17 +114,6 @@ class LocalizationNode(Node):
                       (points[:, 1] >= y_min) & (points[:, 1] <= y_max) &
                       (points[:, 2] >= z_min) & (points[:, 2] <= z_max)]
 
-    def convertGpsCompassToMatrices(self, gps_msg: NavSatFix) -> list[np.ndarray, np.ndarray]:
-        # Convert the compass yaw angle into rotation matrix
-        compass_R = R.from_euler(
-            'xyz', [0, 0, self.current_compass]).as_matrix()
-        # Convert the GPS latitude, longitude and altitude to UTM coordinates
-        utm_e, utm_n, _, _ = utm.from_latlon(
-            gps_msg.latitude, gps_msg.longitude)
-        t = np.array([utm_e, utm_n, gps_msg.altitude])
-
-        return compass_R, t
-
     def buildNavOdomMsg(self, T: np.ndarray, frame_id: str, child_frame_id: str, stamp: float) -> Odometry:
         odom_msg = Odometry()
         odom_msg.header.stamp = stamp
@@ -142,15 +131,18 @@ class LocalizationNode(Node):
         return odom_msg
 
     def computeGpsCoarsePoseInMapFrame(self, gps_msg: NavSatFix) -> np.ndarray:
-        # Calculate the coarse pose in global frame from GPS and compass class member from async callback
-        global_R_sensor, global_t_sensor = self.convertGpsCompassToMatrices(
-            gps_msg)
+        # Convert the compass yaw angle into rotation matrix
+        global_R_sensor = R.from_euler(
+            'xyz', [0, 0, self.current_compass]).as_matrix()
+        # Convert the GPS latitude, longitude and altitude to UTM coordinates
+        utm_e, utm_n, _, _ = utm.from_latlon(
+            gps_msg.latitude, gps_msg.longitude)
+        global_t_sensor = np.array([utm_e, utm_n, gps_msg.altitude])
         # Calculate the coarse pose in map frame from the global pose
-        # This is not the right methodology for working with 4x4 matrices, but it is fine for now
-        map_T_sensor = np.eye(4)
-        map_T_sensor[:3, :3] = self.map_R_global @ global_R_sensor
-        map_T_sensor[:3, 3] = self.map_R_global @ (
-            self.map_t_global + global_t_sensor)
+        global_T_sensor = np.eye(4)
+        global_T_sensor[:3, :3] = global_R_sensor
+        global_T_sensor[:3, 3] = global_t_sensor
+        map_T_sensor = self.map_T_global @ global_T_sensor
 
         return map_T_sensor
 

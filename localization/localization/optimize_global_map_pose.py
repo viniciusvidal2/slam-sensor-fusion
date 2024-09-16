@@ -74,17 +74,15 @@ class MapBuilder:
         n_poses = min(n_valid_poses, len(global_rpy_map),
                       self.max_num_poses_to_optimize)
         global_rpy_map = global_rpy_map[:n_poses]
-        global_t_map = global_t_map[:n_poses]
-        # Get the mean translation
-        map_t_global = -np.mean(global_t_map, axis=0)
-        # Get the RPY angles for each relative transformation
-        # Get the mean RPY angles
+        # Get of the RPY angles and t for each relative transformation
         mean_rpy = np.mean(global_rpy_map, axis=0)
-        map_R_global = R.from_euler('xyz', mean_rpy).as_matrix().T
-        # Create the best transformation matrix
-        self.map_T_global = np.eye(4)
-        self.map_T_global[:3, :3] = map_R_global
-        self.map_T_global[:3, 3] = map_t_global
+        mean_t = np.mean(global_t_map[:n_poses], axis=0)
+        global_R_map = R.from_euler('xyz', mean_rpy).as_matrix()
+        # Compose the global transformation matrix
+        global_T_map = np.eye(4)
+        global_T_map[:3, :3] = global_R_map
+        global_T_map[:3, 3] = mean_t
+        self.map_T_global = np.linalg.inv(global_T_map)
 
         return self.map_T_global
 
