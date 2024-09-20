@@ -12,6 +12,9 @@
 #include <pcl/io/pcd_io.h>
 #include <pcl/conversions.h>
 #include <pcl_conversions/pcl_conversions.h>
+#include <pcl/features/normal_3d.h>
+#include <pcl/filters/voxel_grid.h>
+#include <pcl/filters/crop_box.h>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
@@ -22,6 +25,11 @@
 #include <message_filters/synchronizer.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
+
+#include <cilantro/registration/icp_common_instances.hpp>
+#include <cilantro/registration/icp_single_transform_point_to_point_metric.hpp>
+#include <cilantro/utilities/point_cloud.hpp>
+#include <cilantro/utilities/timer.hpp>
 
 #include "mapping/file_manipulation.hpp"
 

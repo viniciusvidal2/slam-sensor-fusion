@@ -66,6 +66,7 @@ class MapBuilder:
         return True
 
     def optimize_map_T_global(self) -> np.ndarray:
+        np.set_printoptions(suppress=True)
         # Load the odometry poses
         _, n_valid_poses = self.load_odom_positions()
         # Load the GPS/IMU poses
@@ -73,16 +74,27 @@ class MapBuilder:
         # Get the relative transformations from the global to map frames
         n_poses = min(n_valid_poses, len(global_rpy_map),
                       self.max_num_poses_to_optimize)
+        print("Optimizing the global to map transformation using {} poses".format(n_poses))
         global_rpy_map = global_rpy_map[:n_poses]
         # Get of the RPY angles and t for each relative transformation
         mean_rpy = np.mean(global_rpy_map, axis=0)
+        print("Mean RPY angles:")
+        print(mean_rpy)
         mean_t = np.mean(global_t_map[:n_poses], axis=0)
         global_R_map = R.from_euler('xyz', mean_rpy).as_matrix()
         # Compose the global transformation matrix
         global_T_map = np.eye(4)
         global_T_map[:3, :3] = global_R_map
         global_T_map[:3, 3] = mean_t
+        print("Map to Gobal transformation:")
+        print(global_T_map)
         self.map_T_global = np.linalg.inv(global_T_map)
+        # Print the global transformation matrix, adjusting the output format not to use scientific notation
+        print("Global to map transformation:")
+        print(self.map_T_global)
+
+        print("Checking the invertion of the transformation matrix")
+        print(self.map_T_global @ global_T_map)
 
         return self.map_T_global
 

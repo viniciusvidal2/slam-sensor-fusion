@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(mapping)
+project(localization)
 
 # Enable C++17
 set(CMAKE_CXX_STANDARD 17)
@@ -21,7 +21,6 @@ find_package(nav_msgs REQUIRED)
 find_package(pcl_ros REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(message_filters REQUIRED)
-find_package(tf2 REQUIRED)
 
 # find PCL
 find_package(PCL REQUIRED)
@@ -31,8 +30,11 @@ find_package(cilantro REQUIRED)
 
 include_directories(include ${cilantro_INCLUDE_DIRS})
 
-add_executable(map_data_save_node src/map_data_save_node.cpp)
-ament_target_dependencies(map_data_save_node rclcpp 
+add_executable(localization_node_cpp src/localization_node_cpp.cpp 
+              src/global_map_frames_manager.cpp
+              src/icp_point_to_point.cpp)
+              
+ament_target_dependencies(localization_node_cpp rclcpp 
 rclcpp_components 
 geometry_msgs 
 sensor_msgs 
@@ -41,13 +43,11 @@ nav_msgs
 pcl_ros 
 pcl_conversions 
 message_filters
-tf2
 cilantro
 )
-# target_link_libraries(your_node_name ${cilantro_LIBRARIES})
 
 install(TARGETS
-  map_data_save_node
+  localization_node_cpp
   DESTINATION lib/${PROJECT_NAME}
 )
 

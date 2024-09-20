@@ -199,6 +199,8 @@ class LocalizationNode(Node):
             return
         self.get_logger().info('Localization callback called!')
 
+        start = time()
+
         # Obtain the odometry prediction for the pose both in map and odom frames
         odom_current_T_sensor, map_current_T_sensor_odom = self.computeModelPosePredictionFromOdometry(
             odometry_msg)
@@ -213,7 +215,6 @@ class LocalizationNode(Node):
             model_weight * map_current_T_sensor_odom
 
         # Convert the PointCloud2 message to Open3D point cloud and get the cropped region out of it
-        start = time()
         cropped_scan = o3d.geometry.PointCloud()
         cropped_scan.points = o3d.utility.Vector3dVector(
             self.readFilterPtcRegionPoints(ptc_msg=pointcloud_msg))
@@ -227,17 +228,18 @@ class LocalizationNode(Node):
             return
 
         # Apply ICP to align the point clouds
+        start_icp = time()
         cropped_scan.transform(map_T_sensor_coarse)
         lidar_pose_adjustment = o3d.pipelines.registration.registration_icp(
             cropped_scan, cropped_map, self.icp_conversion_threshold, np.eye(
                 4),
             o3d.pipelines.registration.TransformationEstimationPointToPoint(),
-            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=10))
+            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=30))
+        end_icp = time()
+        self.get_logger().info('ICP time: {}'.format(end_icp - start_icp))
 
         # Check if we had convergence in the lidar_pose_adjustment, and then apply fine tune to the map_T_sensor matrix
         # TODO: Implement the check to this lidar_pose_adjustment
-        print("ICP translation:")
-        print(lidar_pose_adjustment.transformation[:3, 3])
         self.map_T_sensor = lidar_pose_adjustment.transformation @ map_T_sensor_coarse
 
         # Publish the fine class member map_T_sensor transformation as Odom message
