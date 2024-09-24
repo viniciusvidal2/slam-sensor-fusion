@@ -119,30 +119,40 @@ Eigen::MatrixX3f ICPPointToPoint::convertPclToEigen(const pcl::PointCloud<PointT
     return cloud_eigen;
 }
 
-Eigen::MatrixX3f ICPPointToPoint::applyTransformation(const Eigen::Matrix4f &transformation, const Eigen::MatrixX3f &cloud)
+void ICPPointToPoint::applyTransformation(const Eigen::Matrix4f &transformation, Eigen::MatrixX3f &cloud)
 {
-    Eigen::MatrixX3f transformed_cloud(cloud.rows(), 3);
     for (int i = 0; i < cloud.rows(); ++i)
     {
-        transformed_cloud(i, 0) = transformation(0, 0) * cloud(i, 0) + transformation(0, 1) * cloud(i, 1) + transformation(0, 2) * cloud(i, 2) + transformation(0, 3);
-        transformed_cloud(i, 1) = transformation(1, 0) * cloud(i, 0) + transformation(1, 1) * cloud(i, 1) + transformation(1, 2) * cloud(i, 2) + transformation(1, 3);
-        transformed_cloud(i, 2) = transformation(2, 0) * cloud(i, 0) + transformation(2, 1) * cloud(i, 1) + transformation(2, 2) * cloud(i, 2) + transformation(2, 3);
+        const float transformed_x = transformation(0, 0) * cloud(i, 0) + transformation(0, 1) * cloud(i, 1) + transformation(0, 2) * cloud(i, 2) + transformation(0, 3);
+        const float transformed_y = transformation(1, 0) * cloud(i, 0) + transformation(1, 1) * cloud(i, 1) + transformation(1, 2) * cloud(i, 2) + transformation(1, 3);
+        const float transformed_z = transformation(2, 0) * cloud(i, 0) + transformation(2, 1) * cloud(i, 1) + transformation(2, 2) * cloud(i, 2) + transformation(2, 3);
+        cloud(i, 0) = transformed_x;
+        cloud(i, 1) = transformed_y;
+        cloud(i, 2) = transformed_z;
     }
-
-    return transformed_cloud;
 }
 
 Eigen::Matrix4f ICPPointToPoint::calculateStepBestTransformation(const Eigen::MatrixX3f &source_cloud, 
                                                                 const Eigen::MatrixX3f &target_cloud)
 {
     // Step 1: Compute centroids
-    const Eigen::Vector3f centroid_source = source_cloud.colwise().mean();
-    const Eigen::Vector3f centroid_target = target_cloud.colwise().mean();
+    Eigen::Vector3f centroid_source(0, 0, 0), centroid_target(0, 0, 0);
+    for (int i = 0; i < source_cloud.rows(); ++i)
+    {
+        centroid_source += source_cloud.row(i);
+        centroid_target += target_cloud.row(i);
+    }
+    centroid_source /= source_cloud.rows();
+    centroid_target /= target_cloud.rows();
 
     // Step 2: Subtract centroids to get zero-mean clouds
-    const Eigen::MatrixX3f source_zero_mean = source_cloud.rowwise() - centroid_source.transpose();
-    const Eigen::MatrixX3f target_zero_mean = target_cloud.rowwise() - centroid_target.transpose();
-
+    Eigen::MatrixX3f source_zero_mean(source_cloud.rows(), 3), target_zero_mean(target_cloud.rows(), 3);
+    for (int i = 0; i < source_cloud.rows(); ++i)
+    {
+        source_zero_mean.row(i) = source_cloud.row(i) - centroid_source.transpose();
+        target_zero_mean.row(i) = target_cloud.row(i) - centroid_target.transpose();
+    }
+    
     // Step 3: Compute covariance matrix
     Eigen::Matrix3f H = source_zero_mean.transpose() * target_zero_mean;
 
@@ -185,7 +195,8 @@ float ICPPointToPoint::calculateErrorMetric(const Eigen::MatrixX3f &source_cloud
 Eigen::Matrix4f ICPPointToPoint::calculateAlignmentTransformation()
 {
     // Apply transformation to the source cloud
-    Eigen::MatrixX3f transformed_source_cloud = applyTransformation(initial_transform_, source_cloud_eigen_);
+    Eigen::MatrixX3f transformed_source_cloud(source_cloud_eigen_);
+    applyTransformation(initial_transform_, transformed_source_cloud);
     // Get the correspondences in the target cloud
     Eigen::MatrixX3f correspondent_target_cloud = findSourceCorrespondencesInTargetCloud(transformed_source_cloud);
     // Filter for valid correspondences
@@ -224,7 +235,7 @@ Eigen::Matrix4f ICPPointToPoint::calculateAlignmentTransformation()
         // Increment the transformation with the step result
         target_T_source = T_step * target_T_source;
         // Apply the transformation to the source cloud
-        transformed_source_cloud = applyTransformation(T_step, transformed_source_cloud);
+        applyTransformation(T_step, transformed_source_cloud);
         // Update the error for next iteration
         current_error_ = error;
         // Update the number of iterations taken

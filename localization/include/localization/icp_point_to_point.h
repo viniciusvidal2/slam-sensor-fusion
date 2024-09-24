@@ -50,7 +50,7 @@ public:
 private:
     Eigen::MatrixX3f convertPclToEigen(const pcl::PointCloud<PointT>::Ptr &cloud);
 
-    Eigen::MatrixX3f applyTransformation(const Eigen::Matrix4f &transformation, const Eigen::MatrixX3f &cloud);
+    void applyTransformation(const Eigen::Matrix4f &transformation, Eigen::MatrixX3f &cloud);
 
     void filterValidCorrespondencesInClouds(Eigen::MatrixX3f &source_cloud, Eigen::MatrixX3f &target_cloud);
 
