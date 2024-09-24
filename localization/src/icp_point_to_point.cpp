@@ -184,16 +184,18 @@ float ICPPointToPoint::calculateErrorMetric(const Eigen::MatrixX3f &source_cloud
 
 Eigen::Matrix4f ICPPointToPoint::calculateAlignmentTransformation()
 {
+    // Apply transformation to the source cloud
+    Eigen::MatrixX3f transformed_source_cloud = applyTransformation(initial_transform_, source_cloud_eigen_);
+    // Get the correspondences in the target cloud
+    Eigen::MatrixX3f correspondent_target_cloud = findSourceCorrespondencesInTargetCloud(transformed_source_cloud);
+    // Filter for valid correspondences
+    filterValidCorrespondencesInClouds(transformed_source_cloud, correspondent_target_cloud);
+
+    // Iterate the algorithm
     Eigen::Matrix4f target_T_source = initial_transform_;
     int iterations_taken = 0;
     for (int i = 0; i < num_iterations_; ++i)
     {
-        // Apply transformation to the source cloud
-        Eigen::MatrixX3f transformed_source_cloud = applyTransformation(target_T_source, source_cloud_eigen_);
-        // Get the correspondences in the target cloud
-        Eigen::MatrixX3f correspondent_target_cloud = findSourceCorrespondencesInTargetCloud(transformed_source_cloud);
-        // Filter for valid correspondences
-        filterValidCorrespondencesInClouds(transformed_source_cloud, correspondent_target_cloud);
         if (transformed_source_cloud.rows() < 3)
         {
             std::cerr << "[ICP ERROR] Not enough valid correspondences found. Aborting." << std::endl;
