@@ -26,11 +26,6 @@
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
 
-#include <cilantro/registration/icp_common_instances.hpp>
-#include <cilantro/registration/icp_single_transform_point_to_point_metric.hpp>
-#include <cilantro/utilities/point_cloud.hpp>
-#include <cilantro/utilities/timer.hpp>
-
 #include "mapping/file_manipulation.hpp"
 
 class MapDataSaver : public rclcpp::Node

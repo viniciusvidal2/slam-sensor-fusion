@@ -89,15 +89,16 @@ Eigen::MatrixX3f ICPPointToPoint::findSourceCorrespondencesInTargetCloud(const E
         source_point.x = source_cloud(i, 0);
         source_point.y = source_cloud(i, 1);
         source_point.z = source_cloud(i, 2);
-        std::vector<int> pointIdxNKNSearch(1);
-        std::vector<float> pointNKNSquaredDistance(1);
-        if (kdtree.nearestKSearch(source_point, 1, pointIdxNKNSearch, pointNKNSquaredDistance) > 0)
+        std::vector<int> kdtree_point_indices(1);
+        std::vector<float> kdtree_point_distances(1);
+        kdtree.nearestKSearch(source_point, 1, kdtree_point_indices, kdtree_point_distances);
+        if (!kdtree_point_indices.empty())
         {
-            if (pointNKNSquaredDistance[0] < max_correspondence_dist_)
+            if (kdtree_point_distances[0] < max_correspondence_dist_)
             {
-                correspondent_target_cloud(i, 0) = target_cloud_pcl_->points[pointIdxNKNSearch[0]].x;
-                correspondent_target_cloud(i, 1) = target_cloud_pcl_->points[pointIdxNKNSearch[0]].y;
-                correspondent_target_cloud(i, 2) = target_cloud_pcl_->points[pointIdxNKNSearch[0]].z;
+                correspondent_target_cloud(i, 0) = target_cloud_pcl_->points[kdtree_point_indices[0]].x;
+                correspondent_target_cloud(i, 1) = target_cloud_pcl_->points[kdtree_point_indices[0]].y;
+                correspondent_target_cloud(i, 2) = target_cloud_pcl_->points[kdtree_point_indices[0]].z;
             }
         }
     }
@@ -124,8 +125,8 @@ Eigen::MatrixX3f ICPPointToPoint::applyTransformation(const Eigen::Matrix4f &tra
     for (int i = 0; i < cloud.rows(); ++i)
     {
         transformed_cloud(i, 0) = transformation(0, 0) * cloud(i, 0) + transformation(0, 1) * cloud(i, 1) + transformation(0, 2) * cloud(i, 2) + transformation(0, 3);
-        transformed_cloud(i, 1) = transformation(0, 0) * cloud(i, 0) + transformation(0, 1) * cloud(i, 1) + transformation(0, 2) * cloud(i, 2) + transformation(0, 3);
-        transformed_cloud(i, 2) = transformation(0, 0) * cloud(i, 0) + transformation(0, 1) * cloud(i, 1) + transformation(0, 2) * cloud(i, 2) + transformation(0, 3);
+        transformed_cloud(i, 1) = transformation(1, 0) * cloud(i, 0) + transformation(1, 1) * cloud(i, 1) + transformation(1, 2) * cloud(i, 2) + transformation(1, 3);
+        transformed_cloud(i, 2) = transformation(2, 0) * cloud(i, 0) + transformation(2, 1) * cloud(i, 1) + transformation(2, 2) * cloud(i, 2) + transformation(2, 3);
     }
 
     return transformed_cloud;
@@ -191,24 +192,8 @@ Eigen::Matrix4f ICPPointToPoint::calculateAlignmentTransformation()
         Eigen::MatrixX3f transformed_source_cloud = applyTransformation(target_T_source, source_cloud_eigen_);
         // Get the correspondences in the target cloud
         Eigen::MatrixX3f correspondent_target_cloud = findSourceCorrespondencesInTargetCloud(transformed_source_cloud);
-        // Create a sample point cloud with 6 points for source and cloud
-        transformed_source_cloud.resize(6, 3);
-        correspondent_target_cloud.resize(6, 3);
-        transformed_source_cloud << 0.0f, 0.0f, 0.0f,
-                               1.0f, 0.0f, 0.0f,
-                               0.0f, 1.0f, 0.0f,
-                               0.0f, 0.0f, 1.0f,
-                               1.0f, 1.0f, 0.0f,
-                               1.0f, 0.0f, 1.0f;
-        correspondent_target_cloud << 0.0f, 0.0f, 0.0f,
-                               2.0f, 0.0f, 0.0f,
-                               0.0f, 2.0f, 0.0f,
-                               0.0f, 0.0f, 2.0f,
-                               2.0f, 2.0f, 0.0f,
-                               2.0f, 0.0f, 2.0f;
         // Filter for valid correspondences
         filterValidCorrespondencesInClouds(transformed_source_cloud, correspondent_target_cloud);
-        std::cout << "Source cloud size: " << transformed_source_cloud.rows() << " - Correspondent target cloud size: " << correspondent_target_cloud.rows() << std::endl;
         if (transformed_source_cloud.rows() < 3)
         {
             std::cerr << "[ICP ERROR] Not enough valid correspondences found. Aborting." << std::endl;
@@ -221,15 +206,14 @@ Eigen::Matrix4f ICPPointToPoint::calculateAlignmentTransformation()
         {
             std::cout << "[ICP INFO] Iteration " << i << " - Error: " << error << std::endl;
         }
-        if (error < acceptable_mean_error_)
+        if (debug_mode_ && error < acceptable_mean_error_)
         {
             std::cout << "[ICP INFO] Acceptable error reached. Stopping iterations." << std::endl;
             break;
         }
-        if (std::abs(current_error_ - error) < transformation_epsilon_)
+        if (debug_mode_ && std::abs(current_error_ - error) < transformation_epsilon_)
         {
             std::cout << "[ICP INFO] Transformation epsilon reached. Stopping iterations." << std::endl;
-            std::cout << "[ICP DEBUG] Current error: " << current_error_ << " - New error: " << error << std::endl;
             break;
         }
 
@@ -237,16 +221,23 @@ Eigen::Matrix4f ICPPointToPoint::calculateAlignmentTransformation()
         const Eigen::Matrix4f T_step = calculateStepBestTransformation(transformed_source_cloud, correspondent_target_cloud);
         // Increment the transformation with the step result
         target_T_source = T_step * target_T_source;
-        std::cout << "[ICP DEBUG] Transformation matrix: " << std::endl << target_T_source << std::endl;
+        // Apply the transformation to the source cloud
+        transformed_source_cloud = applyTransformation(T_step, transformed_source_cloud);
         // Update the error for next iteration
         current_error_ = error;
         // Update the number of iterations taken
         ++iterations_taken;
     }
 
-    if (debug_mode_ && iterations_taken == num_iterations_)
+    if (debug_mode_)
     {
-        std::cout << "[ICP INFO] We reached the maximum number of iterations with no convergence. Returning best transform found." << std::endl;
+        if (iterations_taken == num_iterations_)
+        {
+            std::cout << "[ICP INFO] We reached the maximum number of iterations. Returning best transform found." << std::endl;
+        }
+        std::cout << "[ICP INFO] Total iterations taken: " << iterations_taken << std::endl;
+        std::cout << "[ICP INFO] Final error: " << current_error_ << std::endl;
+        std::cout << "[ICP INFO] Final transformation matrix: " << std::endl << target_T_source << std::endl;
     }
 
     return target_T_source;

@@ -26,10 +26,6 @@
 #include <message_filters/sync_policies/approximate_time.h>
 #include <message_filters/synchronizer.h>
 
-#include <cilantro/registration/icp_common_instances.hpp>
-#include <cilantro/registration/icp_single_transform_point_to_point_metric.hpp>
-#include <cilantro/utilities/point_cloud.hpp>
-
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
 #include <Eigen/Core>
@@ -51,8 +47,12 @@ public:
         map_T_global_ = global_map_manager.getMapTGlobal();
 
         // Init the ICP object to compute Point to Point alignment
-        icp_ = std::make_shared<ICPPointToPoint>(5.5f, 50, 1e-5f, 1e-5f);
-        icp_->setDebugMode(true);
+        const int num_iterations = 10;
+        const float transformation_epsilon = 1e-2f;
+        const float max_correspondence_dist = 1.0f; // [m]
+        const float mean_accepted_error = 0.01f; // [m]
+        icp_ = std::make_shared<ICPPointToPoint>(max_correspondence_dist, num_iterations, mean_accepted_error, transformation_epsilon);
+        icp_->setDebugMode(false);
 
         // Reference transforms
         map_T_sensor_ = Eigen::Matrix4f::Identity();
@@ -190,20 +190,6 @@ private:
         return odom_msg;
     }
 
-    const cilantro::PointCloud3f convertPclToCilantro(const pcl::PointCloud<PointT>::Ptr& cloud) const
-    {
-        cilantro::PointCloud3f cloud_cilantro;
-        cloud_cilantro.points.resize(3, cloud->size());
-        for (std::size_t i = 0; i < cloud->size(); ++i)
-        {
-            cloud_cilantro.points(0, i) = cloud->points[i].x;
-            cloud_cilantro.points(1, i) = cloud->points[i].y;
-            cloud_cilantro.points(2, i) = cloud->points[i].z;
-        }
-
-        return cloud_cilantro;
-    }
-
     const Eigen::Matrix4f calculateAlignmentTransformWithICP(pcl::PointCloud<PointT>::Ptr current_scan_cloud,
                                                              pcl::PointCloud<PointT>::Ptr cropped_map_cloud) const
     {
@@ -211,20 +197,6 @@ private:
         icp_->setInitialTransformation(Eigen::Matrix4f::Identity());
 
         return icp_->calculateAlignmentTransformation();
-        // // Convert both clouds to cilantro format
-        // cilantro::PointCloud3f scan_cilantro = convertPclToCilantro(current_scan_cloud);
-        // cilantro::PointCloud3f map_cilantro = convertPclToCilantro(cropped_map_cloud);
-
-        // // Apply ICP to align the new cloud with the previous one
-        // cilantro::SimplePointToPointMetricRigidICP3f icp(scan_cilantro.points, map_cilantro.points);
-        // icp.correspondenceSearchEngine().setMaxDistance(5.0f);
-        // icp.setConvergenceTolerance(1e-8f).setMaxNumberOfIterations(50);
-
-        // // Log some prints to tell convergence
-        // RCLCPP_INFO(this->get_logger(), "Iterations performed: %zu", icp.getNumberOfPerformedIterations());
-        // RCLCPP_INFO(this->get_logger(), "Has converged: %d", icp.hasConverged());
-
-        // return icp.hasConverged() ? icp.estimate().getTransform().matrix() : Eigen::Matrix4f::Identity();
     }
 
     void localizationCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& pointcloud_msg,
@@ -251,13 +223,11 @@ private:
         pcl::fromROSMsg(*pointcloud_msg, *current_scan_cloud);
         crop_box_.setInputCloud(current_scan_cloud);
         crop_box_.filter(*current_scan_cloud);
-        RCLCPP_INFO(this->get_logger(), "Received and filtered point cloud with %zu points", current_scan_cloud->size());
-
+        
         // Crop the map point cloud with the rotated bounding box surrounding the region
         pcl::PointCloud<PointT>::Ptr cropped_map_cloud = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
         cropTransformMapPointCloudWithRotatedBoundingBox(map_current_T_sensor_coarse, cropped_map_cloud);
-        RCLCPP_INFO(this->get_logger(), "Cropped map cloud with %zu points", cropped_map_cloud->size());
-
+        
         // Align the point clouds with ICP and the this fine tuned transformation
         const Eigen::Matrix4f map_current_T_fine_adjustment = calculateAlignmentTransformWithICP(current_scan_cloud, cropped_map_cloud);
 

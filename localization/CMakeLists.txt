@@ -25,9 +25,6 @@ find_package(message_filters REQUIRED)
 # find PCL
 find_package(PCL REQUIRED)
 
-# Find Cilantro
-find_package(cilantro REQUIRED)
-
 include_directories(include ${cilantro_INCLUDE_DIRS})
 
 add_executable(localization_node_cpp src/localization_node_cpp.cpp 
@@ -43,7 +40,6 @@ nav_msgs
 pcl_ros 
 pcl_conversions 
 message_filters
-cilantro
 )
 
 install(TARGETS

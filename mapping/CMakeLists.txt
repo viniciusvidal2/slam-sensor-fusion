@@ -26,9 +26,6 @@ find_package(tf2 REQUIRED)
 # find PCL
 find_package(PCL REQUIRED)
 
-# Find Cilantro
-find_package(cilantro REQUIRED)
-
 include_directories(include ${cilantro_INCLUDE_DIRS})
 
 add_executable(map_data_save_node src/map_data_save_node.cpp)
@@ -42,9 +39,7 @@ pcl_ros
 pcl_conversions 
 message_filters
 tf2
-cilantro
 )
-# target_link_libraries(your_node_name ${cilantro_LIBRARIES})
 
 install(TARGETS
   map_data_save_node
