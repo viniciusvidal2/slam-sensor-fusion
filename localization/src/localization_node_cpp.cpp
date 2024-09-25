@@ -48,8 +48,8 @@ public:
 
         // Init the ICP object to compute Point to Point alignment
         const int num_iterations = 15;
-        const float transformation_epsilon = 1e-2f;
-        const float max_correspondence_dist = 2.5f; // [m]
+        const float transformation_epsilon = 1e-5f;
+        const float max_correspondence_dist = 1.0f; // [m]
         const float mean_accepted_error = 0.01f; // [m]
         icp_ = std::make_shared<ICPPointToPoint>(max_correspondence_dist, num_iterations, mean_accepted_error, transformation_epsilon);
         icp_->setDebugMode(false);
@@ -89,7 +89,7 @@ public:
             });
 
         // Initialize synchronized subscribers
-        pointcloud_sub_ = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::PointCloud2>>(this, "/cloud_registered");
+        pointcloud_sub_ = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::PointCloud2>>(this, "/cloud_registered_body");
         gps_sub_ = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::NavSatFix>>(this, "/mavros/global_position/global");
         odom_sub_ = std::make_shared<message_filters::Subscriber<nav_msgs::msg::Odometry>>(this, "/Odometry");
         sync_ = std::make_shared<message_filters::Synchronizer<SyncPolicy>>(SyncPolicy(50), *pointcloud_sub_, *gps_sub_, *odom_sub_);
@@ -142,21 +142,17 @@ private:
                                      const pcl::PointCloud<PointT>::Ptr& cloud,
                                      pcl::PointCloud<PointT>::Ptr& cropped_cloud)
     {
+        // Initialize a kdtree with the cloud
+        pcl::search::KdTree<PointT>::Ptr kdtree(new pcl::search::KdTree<PointT>);
+        kdtree->setInputCloud(cloud);
         // Get the point indices inside the radius
         pcl::PointIndices::Ptr indices(new pcl::PointIndices);
-        indices->indices.reserve(cloud->size());    
-        const Eigen::Vector3f t(T.block<3, 1>(0, 3));
-        for (std::size_t i = 0; i < cloud->size(); ++i)
-        {
-            const float dx = cloud->points[i].x - t(0);
-            const float dy = cloud->points[i].y - t(1);
-            const float dz = cloud->points[i].z - t(2);
-            if (std::sqrt(dx*dx + dy*dy + dz*dz) < map_crop_radius_)
-            {
-                indices->indices.emplace_back(i);
-            }
-        }
-
+        indices->indices.reserve(cloud->size());
+        const PointT center = PointT(T(0, 3), T(1, 3), T(2, 3));
+        std::vector<int> kdtree_point_indices;
+        std::vector<float> kdtree_point_distances;
+        kdtree->radiusSearch(center, cloud_crop_radius_, kdtree_point_indices, kdtree_point_distances);
+        indices->indices = kdtree_point_indices;
         // Extract the indices to create the cropped cloud
         pcl::ExtractIndices<PointT> extract;
         extract.setInputCloud(cloud);
@@ -186,6 +182,21 @@ private:
         return odom_msg;
     }
 
+    void subsampleOddIndices(pcl::PointCloud<PointT>::Ptr& cloud)
+    {
+        pcl::PointIndices::Ptr indices(new pcl::PointIndices);
+        indices->indices.reserve(cloud->size() / 2);
+        for (size_t i = 1; i < cloud->size(); i += 2)
+        {
+            indices->indices.emplace_back(i);
+        }
+        pcl::ExtractIndices<PointT> extract;
+        extract.setInputCloud(cloud);
+        extract.setIndices(indices);
+        extract.setNegative(false);
+        extract.filter(*cloud);
+    }
+
     void localizationCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& pointcloud_msg,
                               const sensor_msgs::msg::NavSatFix::ConstSharedPtr& gps_msg,
                               const nav_msgs::msg::Odometry::ConstSharedPtr& odom_msg)
@@ -212,7 +223,9 @@ private:
 
         // Crop the input scan around the sensor frame origin
         pcl::PointCloud<PointT>::Ptr cropped_scan_cloud = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
-        cropPointCloudThroughRadius(Eigen::Matrix4f::Identity(), scan_cloud, cropped_scan_cloud);       
+        cropPointCloudThroughRadius(Eigen::Matrix4f::Identity(), scan_cloud, cropped_scan_cloud);
+        // Subsample the cropped input scan
+        subsampleOddIndices(cropped_scan_cloud);
         // Crop the map point cloud around the coarse sensor position in map frame
         // Only do it if we have a new reference frame measured by walked distance
         const Eigen::Matrix4f map_ref_T_map_current = map_ref_T_sensor_ * map_current_T_sensor_coarse.inverse();
@@ -221,8 +234,6 @@ private:
             cropPointCloudThroughRadius(map_current_T_sensor_coarse, map_cloud_, ref_cropped_map_cloud_);
             map_ref_T_sensor_ = map_current_T_sensor_coarse;
         }
-
-        // Transform the cropped map to sensor frame
         auto end_cloud_crop = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> elapsed_cloud_crop = end_cloud_crop - start_cloud_crop;
         RCLCPP_INFO(this->get_logger(), "Cloud crop took %f seconds", elapsed_cloud_crop.count());
@@ -251,7 +262,7 @@ private:
         RCLCPP_INFO(this->get_logger(), "CALLBACK TOOK %f seconds", elapsed.count());
 
         // Publish the cropped scan
-        // pcl::transformPointCloud(*cropped_scan_cloud, *cropped_scan_cloud, map_T_sensor_);
+        pcl::transformPointCloud(*cropped_scan_cloud, *cropped_scan_cloud, map_T_sensor_);
         cropped_scan_cloud->header.frame_id = "map";
         sensor_msgs::msg::PointCloud2 cropped_scan_msg;
         pcl::toROSMsg(*cropped_scan_cloud, cropped_scan_msg);
@@ -299,10 +310,10 @@ private:
     // Map point cloud
     pcl::PointCloud<PointT>::Ptr map_cloud_;
     pcl::PointCloud<PointT>::Ptr ref_cropped_map_cloud_;
-    const float ref_frame_distance_{5.0f}; // [m]
+    const float ref_frame_distance_{3.0f}; // [m]
 
     // Map crop radius
-    const float map_crop_radius_{10.0f}; // [m]
+    const float cloud_crop_radius_{10.0f}; // [m]
 
     // ICP object
     std::shared_ptr<ICPPointToPoint> icp_;
