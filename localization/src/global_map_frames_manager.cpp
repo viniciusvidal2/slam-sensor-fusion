@@ -32,31 +32,32 @@ std::vector<Eigen::Vector3d> GlobalMapFramesManager::loadOdometryPositions(const
     return odom_positions;
 }
 
-std::vector<std::pair<Eigen::Vector3d, Eigen::Vector3d>> GlobalMapFramesManager::loadGlobalInfoAndRpy(const std::string &gps_rpy_positions_file) const
+std::vector<std::pair<Eigen::Vector3d, float>> GlobalMapFramesManager::loadGlobalInfo(const std::string &gps_yaw_file) const
 {
-    std::vector<std::pair<Eigen::Vector3d, Eigen::Vector3d>> latlonalt_rpy;
-    std::ifstream file(gps_rpy_positions_file);
+    std::vector<std::pair<Eigen::Vector3d, float>> latlonalt_yaw;
+    std::ifstream file(gps_yaw_file);
     if (!file.is_open())
     {
-        std::cerr << "Error opening file " << gps_rpy_positions_file << std::endl;
-        return latlonalt_rpy;
+        std::cerr << "Error opening file " << gps_yaw_file << std::endl;
+        return latlonalt_yaw;
     }
 
     std::string line;
     while (std::getline(file, line))
     {
         // Skip first line
-        if (line == "lat lon alt r p y")
+        if (line == "lat lon alt y")
         {
             continue;
         }
         std::istringstream iss(line);
-        Eigen::Vector3d latlonalt, rpy;
-        iss >> latlonalt.x() >> latlonalt.y() >> latlonalt.z() >> rpy.x() >> rpy.y() >> rpy.z();
-        latlonalt_rpy.push_back(std::make_pair(latlonalt, rpy));
+        Eigen::Vector3d latlonalt;
+        float yaw;
+        iss >> latlonalt.x() >> latlonalt.y() >> latlonalt.z() >> yaw;
+        latlonalt_yaw.push_back(std::make_pair(latlonalt, yaw));
     }
 
-    return latlonalt_rpy;
+    return latlonalt_yaw;
 }
 
 pcl::PointCloud<PointT>::Ptr GlobalMapFramesManager::getMapCloud(const float voxel_size) const
@@ -121,70 +122,50 @@ pcl::PointCloud<PointT>::Ptr GlobalMapFramesManager::mergeScansAndSave(const flo
 
 Eigen::Matrix4d GlobalMapFramesManager::getMapTGlobal() const
 {
-    // If we already have a file with the map_T_global transformation, just load it
-    // If not, process the odometry and global info files to compute it
-    std::string map_t_global_file = data_folder_ + "/map_T_global.txt";
-    std::ifstream file(map_t_global_file);
-    if (file.is_open())
+    // Load the odometry positions and the global info
+    std::string odom_positions_file = data_folder_ + "/odometry_positions.txt";
+    std::string gps_yaw_file = data_folder_ + "/gps_imu_poses.txt";
+    std::vector<Eigen::Vector3d> odom_positions = loadOdometryPositions(odom_positions_file);
+    std::vector<std::pair<Eigen::Vector3d, float>> latlonalt_yaw = loadGlobalInfo(gps_yaw_file);
+
+    // Check how many odometry positions are valid (less than 0.3 meters drift)
+    const double max_odom_drift{0.1}; // [m]
+    std::vector<Eigen::Vector3d> valid_odom_positions;
+    valid_odom_positions.reserve(odom_positions.size());
+    for (const auto& odom_pos : odom_positions)
     {
-        Eigen::Matrix4d map_T_global(Eigen::Matrix4d::Identity());
-        for (size_t i = 0; i < 4; ++i)
+        if (odom_pos.head<2>().norm() < max_odom_drift)
         {
-            for (size_t j = 0; j < 4; ++j)
-            {
-                file >> map_T_global(i, j);
-            }
+            valid_odom_positions.emplace_back(odom_pos);
         }
-        return map_T_global;
+        else
+        {
+            break;
+        }
     }
-    else
+
+    // Get the size to compute the best transform as the lowest of the three
+    std::vector<std::size_t> sizes{valid_odom_positions.size(), latlonalt_yaw.size(), num_poses_max_};
+    const std::size_t compute_size = *std::min_element(sizes.begin(), sizes.end());
+    latlonalt_yaw = std::vector<std::pair<Eigen::Vector3d, float>>(latlonalt_yaw.begin(), latlonalt_yaw.begin() + compute_size);
+
+    // Separate the latlonalt and rpy vectors
+    std::vector<Eigen::Vector3d> latlonalt;
+    std::vector<float> compass_yaw;
+    for (size_t i = 0; i < latlonalt_yaw.size(); ++i)
     {
-        // Load the odometry positions and the global info with RPY
-        std::string odom_positions_file = data_folder_ + "/odometry_positions.txt";
-        std::string gps_rpy_positions_file = data_folder_ + "/gps_imu_poses.txt";
-        std::vector<Eigen::Vector3d> odom_positions = loadOdometryPositions(odom_positions_file);
-        std::vector<std::pair<Eigen::Vector3d, Eigen::Vector3d>> latlonalt_rpy = loadGlobalInfoAndRpy(gps_rpy_positions_file);
-
-        // Check how many odometry positions are valid (less than 0.3 meters drift)
-        const double max_odom_drift{0.1}; // [m]
-        std::vector<Eigen::Vector3d> valid_odom_positions;
-        valid_odom_positions.reserve(odom_positions.size());
-        for (const auto& odom_pos : odom_positions)
-        {
-            if (odom_pos.head<2>().norm() < max_odom_drift)
-            {
-                valid_odom_positions.emplace_back(odom_pos);
-            }
-            else
-            {
-                break;
-            }
-        }
-
-        // Get the size to compute the best transform as the lowest of the three
-        std::vector<std::size_t> sizes{valid_odom_positions.size(), latlonalt_rpy.size(), num_poses_max_};
-        const std::size_t compute_size = *std::min_element(sizes.begin(), sizes.end());
-        valid_odom_positions = std::vector<Eigen::Vector3d>(valid_odom_positions.begin(), valid_odom_positions.begin() + compute_size);
-        latlonalt_rpy = std::vector<std::pair<Eigen::Vector3d, Eigen::Vector3d>>(latlonalt_rpy.begin(), latlonalt_rpy.begin() + compute_size);
-
-        // Separate the latlonalt and rpy vectors
-        std::vector<Eigen::Vector3d> latlonalt, compass_rpy;
-        for (size_t i = 0; i < latlonalt_rpy.size(); ++i)
-        {
-            latlonalt.push_back(latlonalt_rpy[i].first);
-            compass_rpy.push_back(latlonalt_rpy[i].second);
-        }
-
-        return computeMapTGlobal(valid_odom_positions, latlonalt, compass_rpy);
+        latlonalt.push_back(latlonalt_yaw[i].first);
+        compass_yaw.push_back(latlonalt_yaw[i].second);
     }
+
+    return computeMapTGlobal(latlonalt, compass_yaw);
 }
 
-Eigen::Matrix4d GlobalMapFramesManager::computeMapTGlobal(const std::vector<Eigen::Vector3d> &odom_positions,
-                                                          const std::vector<Eigen::Vector3d> &latlonalt,
-                                                          const std::vector<Eigen::Vector3d> &compass_rpy) const
+Eigen::Matrix4d GlobalMapFramesManager::computeMapTGlobal(const std::vector<Eigen::Vector3d> &latlonalt,
+                                                          const std::vector<float> &compass_yaw) const
 {
     // Check if the sizes of the vectors are the same
-    if (odom_positions.size() != latlonalt.size() || latlonalt.size() != compass_rpy.size())
+    if (latlonalt.size() != compass_yaw.size())
     {
         std::cerr << "Error: the sizes of the vectors are not the same!" << std::endl;
         return Eigen::Matrix4d::Identity();
@@ -192,46 +173,28 @@ Eigen::Matrix4d GlobalMapFramesManager::computeMapTGlobal(const std::vector<Eige
 
     // Compute mean global translation vector by converting each data to UTM and averaging
     Eigen::Vector3d global_t_map(0.0, 0.0, 0.0);
-    for (size_t i = 0; i < latlonalt.size(); ++i)
+    for (const auto& llalt : latlonalt)
     {
         double utm_northing, utm_easting;
-        UTM::LLtoUTM(latlonalt[i].x(), latlonalt[i].y(), utm_northing, utm_easting);
-        global_t_map += Eigen::Vector3d(utm_easting, utm_northing, latlonalt[i].z());
+        UTM::LLtoUTM(llalt.x(), llalt.y(), utm_northing, utm_easting);
+        global_t_map += Eigen::Vector3d(utm_easting, utm_northing, llalt.z());
     }
     global_t_map /= latlonalt.size();
 
     // Compute the average RPY from the compass
-    Eigen::Vector3d compass_rpy_avg(0.0, 0.0, 0.0);
-    for (size_t j = 0; j < compass_rpy.size(); ++j)
+    double compass_yaw_avg = 0;
+    for (const auto& yaw : compass_yaw)
     {
-        compass_rpy_avg += compass_rpy[j].cast<double>();
+        compass_yaw_avg += static_cast<double>(yaw);
     }
-    compass_rpy_avg /= compass_rpy.size();
+    compass_yaw_avg /= compass_yaw.size();
 
     // Compute the global_T_map transformation and invert it for map_T_global
     Eigen::Matrix3d global_R_map;
-    global_R_map = Eigen::AngleAxisd(compass_rpy_avg.z(), Eigen::Vector3d::UnitZ()) *
-                   Eigen::AngleAxisd(compass_rpy_avg.y(), Eigen::Vector3d::UnitY()) *
-                   Eigen::AngleAxisd(compass_rpy_avg.x(), Eigen::Vector3d::UnitX());
+    global_R_map = Eigen::AngleAxisd(compass_yaw_avg, Eigen::Vector3d::UnitZ());
     Eigen::Matrix4d map_T_global(Eigen::Matrix4d::Identity());
     map_T_global.block<3, 3>(0, 0) = global_R_map.transpose();
     map_T_global.block<3, 1>(0, 3) = -global_R_map.transpose() * global_t_map;
-
-    // Save if to a file
-    std::ofstream file(data_folder_ + "/map_T_global.txt");
-    if (!file.is_open())
-    {
-        std::cerr << "Error opening file " << data_folder_ + "/map_T_global.txt" << std::endl;
-        return map_T_global;
-    }
-    for (size_t i = 0; i < 4; ++i)
-    {
-        for (size_t j = 0; j < 4; ++j)
-        {
-            file << std::fixed << std::setprecision(6) << map_T_global(i, j) << " ";
-        }
-    }
-    file.close();
 
     return map_T_global;
 }

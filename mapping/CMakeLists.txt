@@ -21,7 +21,6 @@ find_package(nav_msgs REQUIRED)
 find_package(pcl_ros REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(message_filters REQUIRED)
-find_package(tf2 REQUIRED)
 
 # find PCL
 find_package(PCL REQUIRED)
@@ -38,7 +37,6 @@ nav_msgs
 pcl_ros 
 pcl_conversions 
 message_filters
-tf2
 )
 
 install(TARGETS

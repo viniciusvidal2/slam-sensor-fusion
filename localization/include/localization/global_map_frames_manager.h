@@ -42,11 +42,10 @@ public:
 private:
     std::vector<Eigen::Vector3d> loadOdometryPositions(const std::string &odom_positions_file) const;
 
-    std::vector<std::pair<Eigen::Vector3d, Eigen::Vector3d>> loadGlobalInfoAndRpy(const std::string &gps_rpy_positions_file) const;
+    std::vector<std::pair<Eigen::Vector3d, float>> loadGlobalInfo(const std::string &gps_rpy_positions_file) const;
 
-    Eigen::Matrix4d computeMapTGlobal(const std::vector<Eigen::Vector3d> &odom_positions,
-                                      const std::vector<Eigen::Vector3d> &latlonalt,
-                                      const std::vector<Eigen::Vector3d> &compass_rpy) const;
+    Eigen::Matrix4d computeMapTGlobal(const std::vector<Eigen::Vector3d> &latlonalt,
+                                      const std::vector<float> &compass_yaw) const;
 
     pcl::PointCloud<PointT>::Ptr mergeScansAndSave(const float voxel_size) const;
 

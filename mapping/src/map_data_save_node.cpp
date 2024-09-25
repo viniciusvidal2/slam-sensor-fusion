@@ -23,10 +23,10 @@
 #include <message_filters/subscriber.h>
 #include <message_filters/sync_policies/approximate_time.h>
 #include <message_filters/synchronizer.h>
-#include <tf2/LinearMath/Quaternion.h>
-#include <tf2/LinearMath/Matrix3x3.h>
 
 #include "mapping/file_manipulation.hpp"
+
+using PointT = pcl::PointXYZ;
 
 class MapDataSaver : public rclcpp::Node
 {
@@ -52,10 +52,10 @@ public:
 
         // Create the txt file to save the GPS data plus the IMU data for poses
         gps_imu_poses_file_path_ = folder_save_path_ + "/gps_imu_poses.txt";
-        createTextFile(gps_imu_poses_file_path_, "lat lon alt r p y\n");
+        createTextFile(gps_imu_poses_file_path_, "lat lon alt y\n");
 
         // Initialize the point cloud to save the map
-        cloud_map_frame_ = pcl::PointCloud<pcl::PointXYZRGB>::Ptr(new pcl::PointCloud<pcl::PointXYZRGB>);
+        cloud_map_frame_ = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
 
         // Compass subscriber will be used to get the yaw angle
         compass_subscription_ = this->create_subscription<std_msgs::msg::Float64>(
@@ -88,24 +88,15 @@ private:
                   const sensor_msgs::msg::NavSatFix::ConstSharedPtr& gps_msg,
                   const nav_msgs::msg::Odometry::ConstSharedPtr& odom_msg)
     {
-        // Start timer to measure
-        auto start = std::chrono::high_resolution_clock::now();
-
         // Add the point cloud to the map
         pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_i = pcl::PointCloud<pcl::PointXYZI>::Ptr(new pcl::PointCloud<pcl::PointXYZI>);
         pcl::fromROSMsg(*pointcloud_msg, *cloud_i);
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud = pcl::PointCloud<pcl::PointXYZRGB>::Ptr(new pcl::PointCloud<pcl::PointXYZRGB>);
+        pcl::PointCloud<PointT>::Ptr cloud = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
         cloud->points.reserve(cloud_i->points.size());
         for (const auto& point : cloud_i->points)
         {
-            pcl::PointXYZRGB point_rgb;
-            point_rgb.x = point.x;
-            point_rgb.y = point.y;
-            point_rgb.z = point.z;
-            point_rgb.r = point.intensity;
-            point_rgb.g = 0;
-            point_rgb.b = 0;
-            cloud->points.emplace_back(point_rgb);
+            PointT pp = PointT(point.x, point.y, point.z);
+            cloud->points.emplace_back(pp);
         }
         *cloud_map_frame_ += *cloud;
         ++cloud_counter_;
@@ -127,33 +118,15 @@ private:
                    << odom_msg->pose.pose.position.z << std::endl;
         odom_positions_file.close();
 
-        // Get the RPY from the Odometry quaternion with tf2
-        tf2::Quaternion q(odom_msg->pose.pose.orientation.x,
-                          odom_msg->pose.pose.orientation.y,
-                          odom_msg->pose.pose.orientation.z,
-                          odom_msg->pose.pose.orientation.w);
-        double roll, pitch, yaw_odom;
-        tf2::Matrix3x3(q).getRPY(roll, pitch, yaw_odom);
-
-        // Compose another quaternion with same roll and pitch, but with the compass yaw
-        tf2::Quaternion q_compass;
-        q_compass.setRPY(roll, pitch, current_compass_yaw_);
         // Write a line to the GPS IMU file
-        // It should be lat lon alt r p y
+        // It should be lat lon alt yaw
         std::ofstream gps_imu_poses_file(gps_imu_poses_file_path_, std::ios::app);
         gps_imu_poses_file << std::fixed << std::setprecision(8)
                            << gps_msg->latitude << " "
                            << gps_msg->longitude << " "
                            << gps_msg->altitude << " "
-                           << roll << " "
-                           << pitch << " "
                            << current_compass_yaw_ << std::endl;
         gps_imu_poses_file.close();
-
-        // End timer to measure
-        auto end = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double> elapsed = end - start;
-        RCLCPP_INFO(this->get_logger(), "Callback took %f seconds", elapsed.count());
     }
 
     void onShutdown()
@@ -187,7 +160,7 @@ private:
     // Point cloud to save the map in tiles
     int cloud_counter_{0};
     constexpr static int cloud_save_rate_{10};
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_map_frame_;
+    pcl::PointCloud<PointT>::Ptr cloud_map_frame_;
 
     // Yaw angle from compass
     double current_compass_yaw_{0.0}; // -M_PI to M_PI [RAD]
