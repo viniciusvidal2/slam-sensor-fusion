@@ -57,6 +57,10 @@ public:
         // Reference transforms
         map_T_sensor_ = Eigen::Matrix4f::Identity();
         odom_previous_T_sensor_ = Eigen::Matrix4f::Identity();
+        map_ref_T_sensor_ = Eigen::Matrix4f::Identity();
+
+        // Init the cropped map in the ref frame
+        ref_cropped_map_cloud_ = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
 
         // Create the publishers for the odometry and the point cloud
         map_T_sensor_pub_ = this->create_publisher<nav_msgs::msg::Odometry>("/localization/map_T_sensor", 10);
@@ -188,7 +192,7 @@ private:
     {
         // Start timer to measure
         auto start = std::chrono::high_resolution_clock::now();
-std::cout << "\n------------------------------------";
+        
         // Obtain the odometry prediction for the pose both in map and odom frames
         Eigen::Matrix4f odom_current_T_sensor;
         Eigen::Matrix4f map_current_T_sensor_odom;
@@ -209,19 +213,23 @@ std::cout << "\n------------------------------------";
         // Crop the input scan around the sensor frame origin
         pcl::PointCloud<PointT>::Ptr cropped_scan_cloud = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
         cropPointCloudThroughRadius(Eigen::Matrix4f::Identity(), scan_cloud, cropped_scan_cloud);       
-        // Crop the map point cloud around the current sensor position in map frame
-        pcl::PointCloud<PointT>::Ptr cropped_map_cloud = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
-        cropPointCloudThroughRadius(map_current_T_sensor_coarse, map_cloud_, cropped_map_cloud);
+        // Crop the map point cloud around the coarse sensor position in map frame
+        // Only do it if we have a new reference frame measured by walked distance
+        const Eigen::Matrix4f map_ref_T_map_current = map_ref_T_sensor_ * map_current_T_sensor_coarse.inverse();
+        if (map_ref_T_map_current.block<3, 1>(0, 3).norm() > ref_frame_distance_ || ref_cropped_map_cloud_->empty())
+        {
+            cropPointCloudThroughRadius(map_current_T_sensor_coarse, map_cloud_, ref_cropped_map_cloud_);
+            map_ref_T_sensor_ = map_current_T_sensor_coarse;
+        }
 
-        // // Transform the cropped map to sensor frame
-        // pcl::transformPointCloud(*cropped_map_cloud, *cropped_map_cloud, map_current_T_sensor_coarse.inverse());
+        // Transform the cropped map to sensor frame
         auto end_cloud_crop = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> elapsed_cloud_crop = end_cloud_crop - start_cloud_crop;
         RCLCPP_INFO(this->get_logger(), "Cloud crop took %f seconds", elapsed_cloud_crop.count());
         
         // Align the point clouds with ICP to obtain the relative transformation
         auto start_icp = std::chrono::high_resolution_clock::now();
-        icp_->setInputPointClouds(scan_cloud, cropped_map_cloud);
+        icp_->setInputPointClouds(cropped_scan_cloud, ref_cropped_map_cloud_);
         icp_->setInitialTransformation(map_current_T_sensor_coarse);
         map_T_sensor_ = icp_->calculateAlignmentTransformation();
         auto end_icp = std::chrono::high_resolution_clock::now();
@@ -243,7 +251,7 @@ std::cout << "\n------------------------------------";
         RCLCPP_INFO(this->get_logger(), "CALLBACK TOOK %f seconds", elapsed.count());
 
         // Publish the cropped scan
-        pcl::transformPointCloud(*cropped_scan_cloud, *cropped_scan_cloud, map_T_sensor_);
+        // pcl::transformPointCloud(*cropped_scan_cloud, *cropped_scan_cloud, map_T_sensor_);
         cropped_scan_cloud->header.frame_id = "map";
         sensor_msgs::msg::PointCloud2 cropped_scan_msg;
         pcl::toROSMsg(*cropped_scan_cloud, cropped_scan_msg);
@@ -251,9 +259,9 @@ std::cout << "\n------------------------------------";
         cropped_scan_msg.header.frame_id = "map";
         cropped_scan_pub_->publish(cropped_scan_msg);
         // Publish the cropped map
-        cropped_map_cloud->header.frame_id = "map";
+        ref_cropped_map_cloud_->header.frame_id = "map";
         sensor_msgs::msg::PointCloud2 cropped_map_msg;
-        pcl::toROSMsg(*cropped_map_cloud, cropped_map_msg);
+        pcl::toROSMsg(*ref_cropped_map_cloud_, cropped_map_msg);
         cropped_map_msg.header = pointcloud_msg->header;
         cropped_map_msg.header.frame_id = "map";
         map_pub_->publish(cropped_map_msg);
@@ -280,15 +288,18 @@ std::cout << "\n------------------------------------";
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr map_pub_;
 
     // Yaw angle from compass
-    float current_compass_yaw_{0.0}; // -M_PI to M_PI [RAD]
+    float current_compass_yaw_{0.0f}; // -M_PI to M_PI [RAD]
 
     // Reference transforms
     Eigen::Matrix4f map_T_sensor_;
     Eigen::Matrix4d map_T_global_;
     Eigen::Matrix4f odom_previous_T_sensor_;
+    Eigen::Matrix4f map_ref_T_sensor_;
 
     // Map point cloud
     pcl::PointCloud<PointT>::Ptr map_cloud_;
+    pcl::PointCloud<PointT>::Ptr ref_cropped_map_cloud_;
+    const float ref_frame_distance_{5.0f}; // [m]
 
     // Map crop radius
     const float map_crop_radius_{10.0f}; // [m]
