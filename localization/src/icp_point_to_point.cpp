@@ -7,7 +7,7 @@ ICPPointToPoint::ICPPointToPoint(const float max_correspondence_dist, const int 
     acceptable_mean_error_ = acceptable_mean_error;
     transformation_epsilon_ = transformation_epsilon;
 
-    current_error_ = std::numeric_limits<float>::max();
+    last_error_ = std::numeric_limits<float>::max();
     initial_transform_ = Eigen::Matrix4f::Identity();
 
     source_cloud_pcl_ = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
@@ -85,10 +85,7 @@ Eigen::MatrixX3f ICPPointToPoint::findSourceCorrespondencesInTargetCloud(const E
 
     for (int i = 0; i < source_cloud.rows(); ++i)
     {
-        PointT source_point;
-        source_point.x = source_cloud(i, 0);
-        source_point.y = source_cloud(i, 1);
-        source_point.z = source_cloud(i, 2);
+        const PointT source_point = PointT(source_cloud(i, 0), source_cloud(i, 1), source_cloud(i, 2));
         std::vector<int> kdtree_point_indices(1);
         std::vector<float> kdtree_point_distances(1);
         kdtree.nearestKSearch(source_point, 1, kdtree_point_indices, kdtree_point_distances);
@@ -192,6 +189,19 @@ float ICPPointToPoint::calculateErrorMetric(const Eigen::MatrixX3f &source_cloud
     return error/source_cloud.rows();
 }
 
+void ICPPointToPoint::printStepDebug(const int i, const float error) const
+{
+    std::cout << "[ICP INFO] Iteration " << i << " - Error: " << error << std::endl;
+    if (error < acceptable_mean_error_)
+    {
+        std::cout << "[ICP INFO] Acceptable error reached. Stopping iterations." << std::endl;
+    }
+    if (std::abs(last_error_ - error) < transformation_epsilon_)
+    {
+        std::cout << "[ICP INFO] Transformation epsilon reached. Stopping iterations." << std::endl;
+    }
+}
+
 Eigen::Matrix4f ICPPointToPoint::calculateAlignmentTransformation()
 {
     // Apply transformation to the source cloud
@@ -201,35 +211,28 @@ Eigen::Matrix4f ICPPointToPoint::calculateAlignmentTransformation()
     Eigen::MatrixX3f correspondent_target_cloud = findSourceCorrespondencesInTargetCloud(transformed_source_cloud);
     // Filter for valid correspondences
     filterValidCorrespondencesInClouds(transformed_source_cloud, correspondent_target_cloud);
+    if (transformed_source_cloud.rows() < 3)
+    {
+        std::cerr << "[ICP ERROR] Not enough valid correspondences found. Aborting." << std::endl;
+        return initial_transform_;
+    }
 
     // Iterate the algorithm
     Eigen::Matrix4f target_T_source = initial_transform_;
     int iterations_taken = 0;
+    last_error_ = std::numeric_limits<float>::max();
     for (int i = 0; i < num_iterations_; ++i)
     {
-        if (transformed_source_cloud.rows() < 3)
-        {
-            std::cerr << "[ICP ERROR] Not enough valid correspondences found. Aborting." << std::endl;
-            break;
-        }
-
         // Calculate the error metric
         const float error = calculateErrorMetric(transformed_source_cloud, correspondent_target_cloud);
         if (debug_mode_)
         {
-            std::cout << "[ICP INFO] Iteration " << i << " - Error: " << error << std::endl;
+            printStepDebug(i, error);
         }
-        if (debug_mode_ && error < acceptable_mean_error_)
+        if (error < acceptable_mean_error_ || std::abs(last_error_ - error) < transformation_epsilon_)
         {
-            std::cout << "[ICP INFO] Acceptable error reached. Stopping iterations." << std::endl;
             break;
         }
-        if (debug_mode_ && std::abs(current_error_ - error) < transformation_epsilon_)
-        {
-            std::cout << "[ICP INFO] Transformation epsilon reached. Stopping iterations." << std::endl;
-            break;
-        }
-
         // Compute the best transformation for the step
         const Eigen::Matrix4f T_step = calculateStepBestTransformation(transformed_source_cloud, correspondent_target_cloud);
         // Increment the transformation with the step result
@@ -237,7 +240,7 @@ Eigen::Matrix4f ICPPointToPoint::calculateAlignmentTransformation()
         // Apply the transformation to the source cloud
         applyTransformation(T_step, transformed_source_cloud);
         // Update the error for next iteration
-        current_error_ = error;
+        last_error_ = error;
         // Update the number of iterations taken
         ++iterations_taken;
     }
@@ -249,7 +252,7 @@ Eigen::Matrix4f ICPPointToPoint::calculateAlignmentTransformation()
             std::cout << "[ICP INFO] We reached the maximum number of iterations. Returning best transform found." << std::endl;
         }
         std::cout << "[ICP INFO] Total iterations taken: " << iterations_taken << std::endl;
-        std::cout << "[ICP INFO] Final error: " << current_error_ << std::endl;
+        std::cout << "[ICP INFO] Final error: " << last_error_ << std::endl;
         std::cout << "[ICP INFO] Final transformation matrix: " << std::endl << target_T_source << std::endl;
     }
 

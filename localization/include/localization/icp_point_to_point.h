@@ -60,6 +60,8 @@ private:
 
     float calculateErrorMetric(const Eigen::MatrixX3f &source_cloud, const Eigen::MatrixX3f &target_cloud);
 
+    void printStepDebug(const int i, const float error) const;
+
     pcl::PointCloud<PointT>::Ptr source_cloud_pcl_;
     pcl::PointCloud<PointT>::Ptr target_cloud_pcl_;
     Eigen::MatrixX3f source_cloud_eigen_;
@@ -68,7 +70,7 @@ private:
     int num_iterations_;
     float transformation_epsilon_;
     float acceptable_mean_error_;
-    float current_error_;
+    float last_error_;
     Eigen::Matrix4f initial_transform_;
     bool debug_mode_;
 };
