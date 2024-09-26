@@ -33,6 +33,7 @@
 #include "localization/geo_lib.h"
 #include "localization/global_map_frames_manager.h"
 #include "localization/icp_point_to_point.h"
+#include "localization/stochastic_filter.h"
 
 using PointT = pcl::PointXYZ;
 
@@ -53,6 +54,9 @@ public:
         const float mean_accepted_error = 0.01f; // [m]
         icp_ = std::make_shared<ICPPointToPoint>(max_correspondence_dist, num_iterations, mean_accepted_error, transformation_epsilon);
         icp_->setDebugMode(false);
+
+        // Init the Stochastic Filter object
+        filter_ = std::make_shared<StochasticFilter>();
 
         // Reference transforms
         map_T_sensor_ = Eigen::Matrix4f::Identity();
@@ -212,20 +216,22 @@ private:
         // Obtain the coarse pose from GPS and compass in the map frame, based on the global frame information
         const Eigen::Matrix4f map_current_T_sensor_gps = computeGpsCoarsePoseInMapFrame(gps_msg);
 
-        // Get the coarse transformation based on a simple average of the two readings
-        const float gps_compass_weight = 0;
-        const Eigen::Matrix4f map_current_T_sensor_coarse = (1.0f - gps_compass_weight) * map_current_T_sensor_odom + gps_compass_weight * map_current_T_sensor_gps;
+        // Add both poses to filter and obtain the gains
+        filter_->addPosesToQueues(map_current_T_sensor_gps, odom_current_T_sensor);
+        float gps_compass_gain, odometry_gain;
+        filter_->calculateCovarianceGains(gps_compass_gain, odometry_gain);
+        
+        // Get the coarse transformation based on the gains
+        const Eigen::Matrix4f map_current_T_sensor_coarse = 0.9*map_current_T_sensor_odom + 0.1*map_current_T_sensor_gps;
 
-        auto start_cloud_crop = std::chrono::high_resolution_clock::now();
-        // Convert the incoming point cloud
+        // Convert the incoming point cloud and subsample
         pcl::PointCloud<PointT>::Ptr scan_cloud = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
         pcl::fromROSMsg(*pointcloud_msg, *scan_cloud);
+        subsampleOddIndices(scan_cloud);
 
         // Crop the input scan around the sensor frame origin
         pcl::PointCloud<PointT>::Ptr cropped_scan_cloud = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
         cropPointCloudThroughRadius(Eigen::Matrix4f::Identity(), scan_cloud, cropped_scan_cloud);
-        // Subsample the cropped input scan
-        subsampleOddIndices(cropped_scan_cloud);
         // Crop the map point cloud around the coarse sensor position in map frame
         // Only do it if we have a new reference frame measured by walked distance
         const Eigen::Matrix4f map_ref_T_map_current = map_ref_T_sensor_ * map_current_T_sensor_coarse.inverse();
@@ -234,18 +240,11 @@ private:
             cropPointCloudThroughRadius(map_current_T_sensor_coarse, map_cloud_, ref_cropped_map_cloud_);
             map_ref_T_sensor_ = map_current_T_sensor_coarse;
         }
-        auto end_cloud_crop = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double> elapsed_cloud_crop = end_cloud_crop - start_cloud_crop;
-        RCLCPP_INFO(this->get_logger(), "Cloud crop took %f seconds", elapsed_cloud_crop.count());
         
         // Align the point clouds with ICP to obtain the relative transformation
-        auto start_icp = std::chrono::high_resolution_clock::now();
         icp_->setInputPointClouds(cropped_scan_cloud, ref_cropped_map_cloud_);
         icp_->setInitialTransformation(map_current_T_sensor_coarse);
         map_T_sensor_ = icp_->calculateAlignmentTransformation();
-        auto end_icp = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double> elapsed_icp = end_icp - start_icp;
-        RCLCPP_INFO(this->get_logger(), "ICP took %f seconds", elapsed_icp.count());
 
         // Update the transformation in odom frame
         odom_previous_T_sensor_ = odom_current_T_sensor;
@@ -317,6 +316,9 @@ private:
 
     // ICP object
     std::shared_ptr<ICPPointToPoint> icp_;
+
+    // Stochastic filter object
+    std::shared_ptr<StochasticFilter> filter_;
 };
 
 int main(int argc, char * argv[])

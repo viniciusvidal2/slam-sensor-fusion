@@ -29,7 +29,8 @@ include_directories(include ${cilantro_INCLUDE_DIRS})
 
 add_executable(localization_node_cpp src/localization_node_cpp.cpp 
               src/global_map_frames_manager.cpp
-              src/icp_point_to_point.cpp)
+              src/icp_point_to_point.cpp
+              src/stochastic_filter.cpp)
               
 ament_target_dependencies(localization_node_cpp rclcpp 
 rclcpp_components 
