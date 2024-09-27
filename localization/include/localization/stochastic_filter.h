@@ -12,14 +12,23 @@ class StochasticFilter
 public:
     StochasticFilter();
 
-    void addPosesToQueues(const Eigen::Matrix4f &gps_pose, const Eigen::Matrix4f &odometry_pose);
+    void addPoseToOdometryQueue(const Eigen::Matrix4f &pose);
 
-    void calculateCovarianceGains(float& gps_pose_gain, float& odometry_pose_gain);
+    void calculateCovarianceGains();
+
+    void setGPSCovarianceMatrix(const Eigen::Matrix3f& gps_covariance);
+
+    float getGPSGain() const;
+
+    float getOdometryGain() const;
 
 private:
     Eigen::Matrix3f calculateCovarianceMatrix(const std::vector<Eigen::Matrix4f> &poses);
 
-std::vector<Eigen::Matrix4f> gps_poses_, odometry_poses_;
+std::vector<Eigen::Matrix4f> odometry_poses_;
+Eigen::Matrix3f gps_covariance_matrix_;
+float gps_gain_{0.0f}, odometry_gain_{1.0f};
+
 const std::size_t covariance_filter_queue_size_{10}, minimum_poses_for_covariance_{10};
 int circular_vector_counter_{0};
 };
