@@ -53,7 +53,7 @@ void ICPPointToPoint::setInputPointClouds(const pcl::PointCloud<PointT>::Ptr &so
     source_cloud_eigen_ = convertPclToEigen(source_cloud_pcl_);
 }
 
-void ICPPointToPoint::filterValidCorrespondencesInClouds(Eigen::MatrixX3f &source_cloud, Eigen::MatrixX3f &target_cloud)
+void ICPPointToPoint::filterValidCorrespondencesInClouds(Eigen::MatrixX3f &source_cloud, Eigen::MatrixX3f &target_cloud) const
 {
     // Filter valid correspondences (where both source and target are nonzero)
     std::vector<Eigen::Vector3f> valid_source_correspondences_points, valid_target_correspondences_points;
@@ -76,7 +76,7 @@ void ICPPointToPoint::filterValidCorrespondencesInClouds(Eigen::MatrixX3f &sourc
     }
 }
 
-Eigen::MatrixX3f ICPPointToPoint::findSourceCorrespondencesInTargetCloud(const Eigen::MatrixX3f& source_cloud)
+Eigen::MatrixX3f ICPPointToPoint::findSourceCorrespondencesInTargetCloud(const Eigen::MatrixX3f& source_cloud) const
 {
     Eigen::MatrixX3f correspondent_target_cloud(source_cloud.rows(), 3);
     correspondent_target_cloud.setZero();
@@ -103,7 +103,7 @@ Eigen::MatrixX3f ICPPointToPoint::findSourceCorrespondencesInTargetCloud(const E
     return correspondent_target_cloud;
 }
 
-Eigen::MatrixX3f ICPPointToPoint::convertPclToEigen(const pcl::PointCloud<PointT>::Ptr &cloud)
+inline Eigen::MatrixX3f ICPPointToPoint::convertPclToEigen(const pcl::PointCloud<PointT>::Ptr &cloud) const
 {
     Eigen::MatrixX3f cloud_eigen(cloud->size(), 3);
     for (size_t i = 0; i < cloud->size(); ++i)
@@ -116,13 +116,13 @@ Eigen::MatrixX3f ICPPointToPoint::convertPclToEigen(const pcl::PointCloud<PointT
     return cloud_eigen;
 }
 
-void ICPPointToPoint::applyTransformation(const Eigen::Matrix4f &transformation, Eigen::MatrixX3f &cloud)
+inline void ICPPointToPoint::applyTransformation(const Eigen::Matrix4f &T, Eigen::MatrixX3f &cloud) const
 {
     for (int i = 0; i < cloud.rows(); ++i)
     {
-        const float transformed_x = transformation(0, 0) * cloud(i, 0) + transformation(0, 1) * cloud(i, 1) + transformation(0, 2) * cloud(i, 2) + transformation(0, 3);
-        const float transformed_y = transformation(1, 0) * cloud(i, 0) + transformation(1, 1) * cloud(i, 1) + transformation(1, 2) * cloud(i, 2) + transformation(1, 3);
-        const float transformed_z = transformation(2, 0) * cloud(i, 0) + transformation(2, 1) * cloud(i, 1) + transformation(2, 2) * cloud(i, 2) + transformation(2, 3);
+        const float transformed_x = T(0, 0) * cloud(i, 0) + T(0, 1) * cloud(i, 1) + T(0, 2) * cloud(i, 2) + T(0, 3);
+        const float transformed_y = T(1, 0) * cloud(i, 0) + T(1, 1) * cloud(i, 1) + T(1, 2) * cloud(i, 2) + T(1, 3);
+        const float transformed_z = T(2, 0) * cloud(i, 0) + T(2, 1) * cloud(i, 1) + T(2, 2) * cloud(i, 2) + T(2, 3);
         cloud(i, 0) = transformed_x;
         cloud(i, 1) = transformed_y;
         cloud(i, 2) = transformed_z;
@@ -130,7 +130,7 @@ void ICPPointToPoint::applyTransformation(const Eigen::Matrix4f &transformation,
 }
 
 Eigen::Matrix4f ICPPointToPoint::calculateStepBestTransformation(const Eigen::MatrixX3f &source_cloud, 
-                                                                const Eigen::MatrixX3f &target_cloud)
+                                                                const Eigen::MatrixX3f &target_cloud) const
 {
     // Step 1: Compute centroids
     Eigen::Vector3f centroid_source(0, 0, 0), centroid_target(0, 0, 0);
@@ -178,7 +178,7 @@ Eigen::Matrix4f ICPPointToPoint::calculateStepBestTransformation(const Eigen::Ma
     return T_step;
 }
 
-float ICPPointToPoint::calculateErrorMetric(const Eigen::MatrixX3f &source_cloud, const Eigen::MatrixX3f &target_cloud)
+inline float ICPPointToPoint::calculateErrorMetric(const Eigen::MatrixX3f &source_cloud, const Eigen::MatrixX3f &target_cloud) const
 {
     float error = 0.0f;
     for (int i = 0; i < source_cloud.rows(); ++i)
@@ -189,7 +189,7 @@ float ICPPointToPoint::calculateErrorMetric(const Eigen::MatrixX3f &source_cloud
     return error/source_cloud.rows();
 }
 
-void ICPPointToPoint::printStepDebug(const int i, const float error) const
+inline void ICPPointToPoint::printStepDebug(const int i, const float error) const
 {
     std::cout << "[ICP INFO] Iteration " << i << " - Error: " << error << std::endl;
     if (error < acceptable_mean_error_)

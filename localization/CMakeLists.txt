@@ -27,12 +27,13 @@ find_package(PCL REQUIRED)
 
 include_directories(include ${cilantro_INCLUDE_DIRS})
 
-add_executable(localization_node_cpp src/localization_node_cpp.cpp 
+add_executable(localization_node src/main.cpp 
+              src/localization_node.cpp
               src/global_map_frames_manager.cpp
               src/icp_point_to_point.cpp
               src/stochastic_filter.cpp)
               
-ament_target_dependencies(localization_node_cpp rclcpp 
+ament_target_dependencies(localization_node rclcpp 
 rclcpp_components 
 geometry_msgs 
 sensor_msgs 
@@ -44,7 +45,7 @@ message_filters
 )
 
 install(TARGETS
-  localization_node_cpp
+  localization_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -20,10 +20,11 @@ void StochasticFilter::addPoseToOdometryQueue(const Eigen::Matrix4f &pose)
     }
 }
 
-Eigen::Matrix3f StochasticFilter::calculateCovarianceMatrix(const std::vector<Eigen::Matrix4f> &poses)
+Eigen::Matrix3f StochasticFilter::calculateCovarianceMatrix(const std::vector<Eigen::Matrix4f> &poses) const
 {
     Eigen::Matrix3f covariance_matrix = Eigen::Matrix3f::Zero();
     Eigen::Vector3f mean_pose = Eigen::Vector3f::Zero();
+    
     for (const auto &pose : poses)
     {
         mean_pose += pose.block<3, 1>(0, 3);
