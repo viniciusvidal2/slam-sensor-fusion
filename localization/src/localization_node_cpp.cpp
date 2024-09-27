@@ -44,7 +44,7 @@ public:
     {
         // Init the map point cloud and transformation with the frames manager
         GlobalMapFramesManager global_map_manager("/home/vini/Desktop/map_data", "map", 50);
-        map_cloud_ = global_map_manager.getMapCloud(0.2f);
+        map_cloud_ = global_map_manager.getMapCloud(0.1f);
         map_T_global_ = global_map_manager.getMapTGlobal();
 
         // Init the ICP object to compute Point to Point alignment
@@ -216,13 +216,16 @@ private:
         // Obtain the coarse pose from GPS and compass in the map frame, based on the global frame information
         const Eigen::Matrix4f map_current_T_sensor_gps = computeGpsCoarsePoseInMapFrame(gps_msg);
 
-        // Add both poses to filter and obtain the gains
-        filter_->addPosesToQueues(map_current_T_sensor_gps, odom_current_T_sensor);
-        float gps_compass_gain, odometry_gain;
-        filter_->calculateCovarianceGains(gps_compass_gain, odometry_gain);
-        
-        // Get the coarse transformation based on the gains
-        const Eigen::Matrix4f map_current_T_sensor_coarse = 0.9*map_current_T_sensor_odom + 0.1*map_current_T_sensor_gps;
+        // Add both poses to filter and obtain the weighted coarse pose from GPS and Odometry fusion
+        Eigen::Matrix3f gps_covariance_matrix;
+        gps_covariance_matrix << gps_msg->position_covariance[0], gps_msg->position_covariance[1], gps_msg->position_covariance[2],
+                                 gps_msg->position_covariance[3], gps_msg->position_covariance[4], gps_msg->position_covariance[5],
+                                 gps_msg->position_covariance[6], gps_msg->position_covariance[7], gps_msg->position_covariance[8];
+        filter_->setGPSCovarianceMatrix(gps_covariance_matrix);
+        filter_->addPoseToOdometryQueue(map_current_T_sensor_odom);
+        filter_->calculateCovarianceGains();
+        const float gps_compass_gain = filter_->getGPSGain(), odometry_gain = filter_->getOdometryGain();
+        const Eigen::Matrix4f map_current_T_sensor_coarse = odometry_gain*map_current_T_sensor_odom + gps_compass_gain*map_current_T_sensor_gps;
 
         // Convert the incoming point cloud and subsample
         pcl::PointCloud<PointT>::Ptr scan_cloud = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
