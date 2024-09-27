@@ -7,17 +7,17 @@
 
 namespace UTM
 {
-    // Grid granularity for rounding UTM coordinates to generate MapXY.
+    /// @brief Grid granularity for rounding UTM coordinates to generate MapXY.
     const double grid_size = 100000.0;    ///< 100 km grid
 
-    // WGS84 Parameters
+    /// @brief WGS84 Parameters
     #define WGS84_A		6378137.0		///< major axis
     #define WGS84_B		6356752.31424518	///< minor axis
     #define WGS84_F		0.0033528107		///< ellipsoid flattening
     #define WGS84_E		0.0818191908		///< first eccentricity
     #define WGS84_EP	0.0820944379		///< second eccentricity
 
-    // UTM Parameters
+    /// @brief UTM Parameters
     #define UTM_K0		0.9996			///< scale factor
     #define UTM_FE		500000.0		///< false easting
     #define UTM_FN_N	0.0           ///< false northing, northern hemisphere
@@ -27,75 +27,59 @@ namespace UTM
     #define UTM_E6		(UTM_E4*UTM_E2)		///< e^6
     #define UTM_EP2		(UTM_E2/(1-UTM_E2))	///< e'^2
 
-    // Converts degrees to radians
+    /// @brief Converts degrees to radians
     #define DEG_TO_RAD	0.017453292519943295769236907684886
 
-    static inline void LLtoUTM(const double Lat, const double Long,
-                               double &UTMNorthing, double &UTMEasting)
+    /// @brief Converts LatLon to UTM coordinates.
+    /// @param lat Latitude in decimal degrees.
+    /// @param lon Longitude in decimal degrees.
+    /// @param utm_northing UTM Northing coordinate.
+    /// @param utm_easting UTM Easting coordinate.
+    static inline void LLtoUTM(const double lat, const double lon,
+                               double &utm_northing, double &utm_easting)
     {
-        double a = WGS84_A;
-        double eccSquared = UTM_E2;
-        double k0 = UTM_K0;
-
-        double LongOrigin;
-        double eccPrimeSquared;
-        double N, T, C, A, M;
+        const double a = WGS84_A;
+        const double ecc_squared = UTM_E2;
+        const double k0 = UTM_K0;
 
         //Make sure the longitude is between -180.00 .. 179.9
-        double LongTemp = (Long+180)-int((Long+180)/360)*360-180;
+        const double lon_temp = (lon + 180.0) - int((lon + 180.0)/360.0)*360.0 - 180.0;
 
-        double LatRad = Lat*DEG_TO_RAD;
-        double LongRad = LongTemp*DEG_TO_RAD;
-        double LongOriginRad;
-        int    ZoneNumber;
+        double lat_rad = lat*DEG_TO_RAD;
+        double lon_rad = lon_temp*DEG_TO_RAD;
+        int zone_number = static_cast<int>((lon_temp + 180.0)/6.0) + 1;
 
-        ZoneNumber = int((LongTemp + 180)/6) + 1;
-
-        if( Lat >= 56.0 && Lat < 64.0 && LongTemp >= 3.0 && LongTemp < 12.0 )
-            ZoneNumber = 32;
-
-        // Special zones for Svalbard
-        if( Lat >= 72.0 && Lat < 84.0 )
+        if (lat >= 56.0 && lat < 64.0 && lon_temp >= 3.0 && lon_temp < 12.0)
         {
-            if(      LongTemp >= 0.0  && LongTemp <  9.0 ) ZoneNumber = 31;
-            else if( LongTemp >= 9.0  && LongTemp < 21.0 ) ZoneNumber = 33;
-            else if( LongTemp >= 21.0 && LongTemp < 33.0 ) ZoneNumber = 35;
-            else if( LongTemp >= 33.0 && LongTemp < 42.0 ) ZoneNumber = 37;
+            zone_number = 32;
         }
+
         // +3 puts origin in middle of zone
-        LongOrigin = (ZoneNumber - 1)*6 - 180 + 3;
-        LongOriginRad = LongOrigin * DEG_TO_RAD;
+        const double lon_origin_rad = ((static_cast<double>(zone_number) - 1.0)*6.0 - 180.0 + 3.0) * DEG_TO_RAD;
 
-        eccPrimeSquared = (eccSquared)/(1-eccSquared);
+        const double ecc_prime_squared = (ecc_squared)/(1.0 - ecc_squared);
 
-        N = a/sqrt(1-eccSquared*sin(LatRad)*sin(LatRad));
-        T = tan(LatRad)*tan(LatRad);
-        C = eccPrimeSquared*cos(LatRad)*cos(LatRad);
-        A = cos(LatRad)*(LongRad-LongOriginRad);
+        const double N = a/sqrt(1.0 - ecc_squared*sin(lat_rad)*sin(lat_rad));
+        const double T = tan(lat_rad)*tan(lat_rad);
+        const double C = ecc_prime_squared*cos(lat_rad)*cos(lat_rad);
+        const double A = cos(lat_rad)*(lon_rad - lon_origin_rad);
 
-        M = a*((1 - eccSquared/4 - 3*eccSquared*eccSquared/64
-                - 5*eccSquared*eccSquared*eccSquared/256) * LatRad
-               - (3*eccSquared/8 + 3*eccSquared*eccSquared/32
-                  + 45*eccSquared*eccSquared*eccSquared/1024)*sin(2*LatRad)
-               + (15*eccSquared*eccSquared/256
-                  + 45*eccSquared*eccSquared*eccSquared/1024)*sin(4*LatRad)
-               - (35*eccSquared*eccSquared*eccSquared/3072)*sin(6*LatRad));
+        const double M = a*((1 - ecc_squared/4.0 - 3.0*ecc_squared*ecc_squared/64.0
+                - 5.0*ecc_squared*ecc_squared*ecc_squared/256.0)*lat_rad
+               - (3.0*ecc_squared/8.0 + 3.0*ecc_squared*ecc_squared/32.0
+                  + 45.0*ecc_squared*ecc_squared*ecc_squared/1024.0)*sin(2.0*lat_rad)
+               + (15.0*ecc_squared*ecc_squared/256.0
+                  + 45.0*ecc_squared*ecc_squared*ecc_squared/1024.0)*sin(4.0*lat_rad)
+               - (35.0*ecc_squared*ecc_squared*ecc_squared/3072.0)*sin(6.0*lat_rad));
 
-        UTMEasting = (double)
-        (k0*N*(A+(1-T+C)*A*A*A/6
-               + (5-18*T+T*T+72*C-58*eccPrimeSquared)*A*A*A*A*A/120)
+        utm_easting = (k0*N*(A + (1 - T + C)*A*A*A/6.0
+               + (5.0 - 18.0*T+T*T + 72.0*C - 58.0*ecc_prime_squared)*A*A*A*A*A/120.0)
          + 500000.0);
 
-        UTMNorthing = (double)
-        (k0*(M+N*tan(LatRad)
-             *(A*A/2+(5-T+9*C+4*C*C)*A*A*A*A/24
-               + (61-58*T+T*T+600*C-330*eccPrimeSquared)*A*A*A*A*A*A/720)));
-
-        if(Lat < 0)
-        {
-            //10000000 meter offset for southern hemisphere
-            UTMNorthing += 10000000.0;
-        }
+        utm_northing = k0*(M + N*tan(lat_rad)
+             *(A*A/2 + (5.0 - T + 9.0*C + 4.0*C*C)*A*A*A*A/24.0
+               + (61.0 - 58.0*T + T*T+600.0*C - 330.0*ecc_prime_squared)*A*A*A*A*A*A/720.0))
+               + 10000000.0; // 10000000 meter offset for southern hemisphere
     }
 } // end namespace UTM
 

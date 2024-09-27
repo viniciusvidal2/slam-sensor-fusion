@@ -51,9 +51,7 @@ void StochasticFilter::calculateCovarianceGains()
     }
 
     // Calculate the covariance matrices for the GPS and odometry poses
-    std::cout << "GPS COVARIANCE: \n" << gps_covariance_matrix_ << std::endl;
     const Eigen::Matrix3f odometry_covariance_matrix = calculateCovarianceMatrix(odometry_poses_);
-    std::cout << "ODOMETRY COVARIANCE: \n" << odometry_covariance_matrix << std::endl;
 
     // Calculate the gains based on the trace of the covariance matrices
     const float gps_pose_weigth = gps_covariance_matrix_.trace();

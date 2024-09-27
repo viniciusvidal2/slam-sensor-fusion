@@ -25,9 +25,11 @@ find_package(message_filters REQUIRED)
 # find PCL
 find_package(PCL REQUIRED)
 
-include_directories(include ${cilantro_INCLUDE_DIRS})
+include_directories(include)
 
-add_executable(map_data_save_node src/map_data_save_node.cpp)
+add_executable(map_data_save_node src/main.cpp 
+                                  src/map_data_save_node.cpp)
+
 ament_target_dependencies(map_data_save_node rclcpp 
 rclcpp_components 
 geometry_msgs 
