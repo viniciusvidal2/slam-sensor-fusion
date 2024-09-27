@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'localization'
+package_name = 'localization_python'
 
 setup(
     name=package_name,
@@ -20,7 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'localization_node = localization.localization_node:main',
+            'localization_node = localization_python.localization_node:main',
         ],
     },
 )
