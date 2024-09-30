@@ -160,6 +160,36 @@ inline void LocalizationNode::subsampleOddIndices(pcl::PointCloud<PointT>::Ptr& 
     extract.filter(*cloud);
 }
 
+void LocalizationNode::computePoseGainsFromCovarianceMatrices(const sensor_msgs::msg::NavSatFix::ConstSharedPtr& gps_msg,
+                                                              const nav_msgs::msg::Odometry::ConstSharedPtr& odom_msg,
+                                                              float& odom_gain, float& gps_gain, const bool fixed) const
+{
+    // If fixed just send constant value to the gains with more value to odometry
+    if (fixed)
+    {
+        odom_gain = 0.95f;
+        gps_gain = 0.05f;
+        return;
+    }
+
+    // Get covariance matrices from the messages
+    Eigen::Matrix3f gps_covariance_matrix;
+    gps_covariance_matrix << gps_msg->position_covariance[0], gps_msg->position_covariance[1], gps_msg->position_covariance[2],
+                             gps_msg->position_covariance[3], gps_msg->position_covariance[4], gps_msg->position_covariance[5],
+                             gps_msg->position_covariance[6], gps_msg->position_covariance[7], gps_msg->position_covariance[8];
+    Eigen::Matrix3f odom_covariance_matrix;
+    odom_covariance_matrix << odom_msg->pose.covariance[0], odom_msg->pose.covariance[1], odom_msg->pose.covariance[2],
+                              odom_msg->pose.covariance[6], odom_msg->pose.covariance[7], odom_msg->pose.covariance[8],
+                              odom_msg->pose.covariance[12], odom_msg->pose.covariance[13], odom_msg->pose.covariance[14];
+    // Calculate the trace of the covariance matrices as weights
+    const float odom_weight = odom_covariance_matrix.trace();
+    const float gps_weight = gps_covariance_matrix.trace();
+    // Calculate the gains as inverse of the traces weights
+    const float total_det = odom_weight + gps_weight;
+    odom_gain = gps_weight / total_det;
+    gps_gain = odom_weight / total_det;
+}
+
 void LocalizationNode::localizationCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& pointcloud_msg,
                             const sensor_msgs::msg::NavSatFix::ConstSharedPtr& gps_msg,
                             const nav_msgs::msg::Odometry::ConstSharedPtr& odom_msg)
@@ -176,14 +206,8 @@ void LocalizationNode::localizationCallback(const sensor_msgs::msg::PointCloud2:
     const Eigen::Matrix4f map_current_T_sensor_gps = computeGpsCoarsePoseInMapFrame(gps_msg);
 
     // Add both poses to filter and obtain the weighted coarse pose from GPS and Odometry fusion
-    Eigen::Matrix3f gps_covariance_matrix;
-    gps_covariance_matrix << gps_msg->position_covariance[0], gps_msg->position_covariance[1], gps_msg->position_covariance[2],
-                                gps_msg->position_covariance[3], gps_msg->position_covariance[4], gps_msg->position_covariance[5],
-                                gps_msg->position_covariance[6], gps_msg->position_covariance[7], gps_msg->position_covariance[8];
-    filter_->setGPSCovarianceMatrix(gps_covariance_matrix);
-    filter_->addPoseToOdometryQueue(map_current_T_sensor_odom);
-    filter_->calculateCovarianceGains();
-    const float gps_compass_gain = filter_->getGPSGain(), odometry_gain = filter_->getOdometryGain();
+    float gps_compass_gain, odometry_gain;
+    computePoseGainsFromCovarianceMatrices(gps_msg, odom_msg, odometry_gain, gps_compass_gain, false);
     const Eigen::Matrix4f map_current_T_sensor_coarse = odometry_gain*map_current_T_sensor_odom + gps_compass_gain*map_current_T_sensor_gps;
 
     // Convert the incoming point cloud and subsample

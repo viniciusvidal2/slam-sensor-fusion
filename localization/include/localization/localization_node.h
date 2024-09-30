@@ -74,13 +74,23 @@ private:
     /// @param stamp The timestamp
     /// @return The nav_msgs::Odometry message
     inline nav_msgs::msg::Odometry buildNavOdomMsg(const Eigen::Matrix4f& T, 
-                                                  const std::string& frame_id, 
-                                                  const std::string& child_frame_id, 
-                                                  const rclcpp::Time& stamp) const;
+                                                   const std::string& frame_id, 
+                                                   const std::string& child_frame_id, 
+                                                   const rclcpp::Time& stamp) const;
 
     /// @brief Subsample the point cloud by keeping only the odd indices
     /// @param cloud The input point cloud
     inline void subsampleOddIndices(pcl::PointCloud<PointT>::Ptr& cloud) const;
+
+    /// @brief Compute the pose weights from the covariance matrices
+    /// @param gps_msg The GPS message
+    /// @param odom_msg The odometry message
+    /// @param odom_gain The odometry gain
+    /// @param gps_gain The GPS gain
+    /// @param fixed True if the GPS and ODOM covariances should be fixed
+    void computePoseGainsFromCovarianceMatrices(const sensor_msgs::msg::NavSatFix::ConstSharedPtr& gps_msg,
+                                                const nav_msgs::msg::Odometry::ConstSharedPtr& odom_msg,
+                                                float& odom_gain, float& gps_gain, const bool fixed) const;
 
     /// @brief Callback for the localization node
     /// @param pointcloud_msg The incoming point cloud message
