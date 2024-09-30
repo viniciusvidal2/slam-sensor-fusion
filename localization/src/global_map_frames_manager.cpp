@@ -120,7 +120,7 @@ pcl::PointCloud<PointT>::Ptr GlobalMapFramesManager::mergeScansAndSave(const flo
     return map_cloud;
 }
 
-Eigen::Matrix4d GlobalMapFramesManager::getGlobalTMap() const
+Eigen::Matrix4d GlobalMapFramesManager::getMapTGlobal() const
 {
     // Load the odometry positions and the global info
     std::string odom_positions_file = data_folder_ + "/odometry_positions.txt";

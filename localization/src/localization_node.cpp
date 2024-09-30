@@ -6,7 +6,7 @@ LocalizationNode::LocalizationNode() : Node("localization_node")
     GlobalMapFramesManager global_map_manager("/home/vini/Desktop/map_data", "map", 50);
     map_cloud_ = global_map_manager.getMapCloud(0.1f);
     applyUniformSubsample(map_cloud_, 2);
-    map_T_global_ = global_map_manager.getGlobalTMap();
+    map_T_global_ = global_map_manager.getMapTGlobal();
 
     // Init the ICP object to compute Point to Point alignment
     const int num_iterations = 15;
@@ -27,7 +27,7 @@ LocalizationNode::LocalizationNode() : Node("localization_node")
     // Reference transforms
     map_T_sensor_ = Eigen::Matrix4f::Identity();
     odom_T_sensor_previous_ = Eigen::Matrix4f::Identity();
-    map_ref_T_sensor_ = Eigen::Matrix4f::Identity();
+    map_T_sensor_ref = Eigen::Matrix4f::Identity();
 
     // Init the cropped map in the ref frame
     ref_cropped_map_cloud_ = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
@@ -210,16 +210,16 @@ void LocalizationNode::localizationCallback(const sensor_msgs::msg::PointCloud2:
     
     // Obtain the odometry prediction for the pose both in map and odom frames
     Eigen::Matrix4f odom_T_sensor_current;
-    Eigen::Matrix4f map_current_T_sensor_odom;
-    computePosePredictionFromOdometry(odom_msg, odom_T_sensor_current, map_current_T_sensor_odom);
+    Eigen::Matrix4f map_T_sensor_odom;
+    computePosePredictionFromOdometry(odom_msg, odom_T_sensor_current, map_T_sensor_odom);
 
     // Obtain the coarse pose from GPS and compass in the map frame, based on the global frame information
-    const Eigen::Matrix4f map_current_T_sensor_gps = computeGpsCoarsePoseInMapFrame(gps_msg);
+    const Eigen::Matrix4f map_T_sensor_gps = computeGpsCoarsePoseInMapFrame(gps_msg);
 
     // Add both poses to filter and obtain the weighted coarse pose from GPS and Odometry fusion
     float gps_compass_gain, odometry_gain;
     computePoseGainsFromCovarianceMatrices(gps_msg, odom_msg, odometry_gain, gps_compass_gain, false);
-    const Eigen::Matrix4f map_current_T_sensor_coarse = odometry_gain*map_current_T_sensor_odom + gps_compass_gain*map_current_T_sensor_gps;
+    const Eigen::Matrix4f map_T_sensor_coarse = odometry_gain*map_T_sensor_odom + gps_compass_gain*map_T_sensor_gps;
 
     // Convert the incoming point cloud and subsample
     pcl::PointCloud<PointT>::Ptr scan_cloud = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
@@ -231,16 +231,16 @@ void LocalizationNode::localizationCallback(const sensor_msgs::msg::PointCloud2:
     cropPointCloudThroughRadius(Eigen::Matrix4f::Identity(), scan_cloud, cropped_scan_cloud);
     // Crop the map point cloud around the coarse sensor position in map frame
     // Only do it if we have a new reference frame measured by walked distance
-    const Eigen::Matrix4f map_ref_T_map_current = map_ref_T_sensor_ * map_current_T_sensor_coarse.inverse();
-    if (map_ref_T_map_current.block<3, 1>(0, 3).norm() > ref_frame_distance_ || ref_cropped_map_cloud_->empty())
+    const Eigen::Matrix4f coarse_T_ref = map_T_sensor_coarse.inverse() * map_T_sensor_ref;
+    if (coarse_T_ref.block<3, 1>(0, 3).norm() > ref_frame_distance_ || ref_cropped_map_cloud_->empty())
     {
-        cropPointCloudThroughRadius(map_current_T_sensor_coarse, map_cloud_, ref_cropped_map_cloud_);
-        map_ref_T_sensor_ = map_current_T_sensor_coarse;
+        cropPointCloudThroughRadius(map_T_sensor_coarse, map_cloud_, ref_cropped_map_cloud_);
+        map_T_sensor_ref = map_T_sensor_coarse;
     }
     
     // Align the point clouds with ICP to obtain the relative transformation
     icp_->setInputPointClouds(cropped_scan_cloud, ref_cropped_map_cloud_);
-    icp_->setInitialTransformation(map_current_T_sensor_coarse);
+    icp_->setInitialTransformation(map_T_sensor_coarse);
     map_T_sensor_ = icp_->calculateAlignmentTransformation();
 
     // Update the transformation in odom frame
@@ -248,9 +248,9 @@ void LocalizationNode::localizationCallback(const sensor_msgs::msg::PointCloud2:
 
     // Publish the odometry messages
     map_T_sensor_pub_->publish(buildNavOdomMsg(map_T_sensor_, "map", "sensor", pointcloud_msg->header.stamp));
-    map_T_sensor_coarse_pub_->publish(buildNavOdomMsg(map_current_T_sensor_coarse, "map", "sensor", pointcloud_msg->header.stamp));
+    map_T_sensor_coarse_pub_->publish(buildNavOdomMsg(map_T_sensor_coarse, "map", "sensor", pointcloud_msg->header.stamp));
     odom_T_sensor_pub_->publish(buildNavOdomMsg(odom_T_sensor_current, "map", "sensor", pointcloud_msg->header.stamp));
-    map_T_sensor_gps_pub_->publish(buildNavOdomMsg(map_current_T_sensor_gps, "map", "sensor", pointcloud_msg->header.stamp));
+    map_T_sensor_gps_pub_->publish(buildNavOdomMsg(map_T_sensor_gps, "map", "sensor", pointcloud_msg->header.stamp));
 
     // Log the time taken to process the callback
     auto end = std::chrono::high_resolution_clock::now();

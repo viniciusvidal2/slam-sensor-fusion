@@ -129,7 +129,7 @@ private:
     Eigen::Matrix4f map_T_sensor_;
     Eigen::Matrix4d map_T_global_;
     Eigen::Matrix4f odom_T_sensor_previous_;
-    Eigen::Matrix4f map_ref_T_sensor_;
+    Eigen::Matrix4f map_T_sensor_ref;
 
     /// @brief Map point cloud variables
     pcl::PointCloud<PointT>::Ptr map_cloud_;

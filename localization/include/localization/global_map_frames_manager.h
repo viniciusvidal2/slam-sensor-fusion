@@ -46,7 +46,7 @@ public:
 
     /// @brief Get the transformation from the global to the map frame
     /// @return The transformation matrix from the global to the map frame
-    Eigen::Matrix4d getGlobalTMap() const;
+    Eigen::Matrix4d getMapTGlobal() const;
 
 private:
     /// @brief Load the odometry positions from the file
