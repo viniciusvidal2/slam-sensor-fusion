@@ -94,14 +94,14 @@ inline void LocalizationNode::computePosePredictionFromOdometry(const nav_msgs::
 const Eigen::Matrix4f LocalizationNode::computeGpsCoarsePoseInMapFrame(const sensor_msgs::msg::NavSatFix::ConstSharedPtr& gps_msg) const
 {
     // Convert the compass yaw to a rotation matrix
-    Eigen::Matrix3f R_sensor_gps;
-    R_sensor_gps = Eigen::AngleAxisf(current_compass_yaw_, Eigen::Vector3f::UnitZ());
+    Eigen::Matrix3f global_R_sensor;
+    global_R_sensor = Eigen::AngleAxisf(current_compass_yaw_, Eigen::Vector3f::UnitZ());
     // Convert the GPS latitude, longitude and altitude to UTM coordinates
     double utm_northing, utm_easting;
     UTM::LLtoUTM(gps_msg->latitude, gps_msg->longitude, utm_northing, utm_easting);
     // Calculate the pose in map frame from the pose in global frame
     Eigen::Matrix4f global_T_sensor(Eigen::Matrix4f::Identity());
-    global_T_sensor.block<3, 3>(0, 0) = R_sensor_gps;
+    global_T_sensor.block<3, 3>(0, 0) = global_R_sensor;
     global_T_sensor.block<3, 1>(0, 3) = Eigen::Vector3f(utm_easting, utm_northing, gps_msg->altitude);
 
     return map_T_global_.cast<float>() * global_T_sensor;

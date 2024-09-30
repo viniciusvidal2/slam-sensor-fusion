@@ -158,10 +158,10 @@ Eigen::Matrix4d GlobalMapFramesManager::getGlobalTMap() const
         compass_yaw.push_back(latlonalt_yaw[i].second);
     }
 
-    return computeGlobalTMap(latlonalt, compass_yaw);
+    return computeMapTGlobal(latlonalt, compass_yaw);
 }
 
-Eigen::Matrix4d GlobalMapFramesManager::computeGlobalTMap(const std::vector<Eigen::Vector3d> &latlonalt,
+Eigen::Matrix4d GlobalMapFramesManager::computeMapTGlobal(const std::vector<Eigen::Vector3d> &latlonalt,
                                                           const std::vector<float> &compass_yaw) const
 {
     // Check if the sizes of the vectors are the same
@@ -172,14 +172,14 @@ Eigen::Matrix4d GlobalMapFramesManager::computeGlobalTMap(const std::vector<Eige
     }
 
     // Compute mean global translation vector by converting each data to UTM and averaging
-    Eigen::Vector3d map_t_global(0.0, 0.0, 0.0);
+    Eigen::Vector3d global_t_map(0.0, 0.0, 0.0);
     for (const auto& llalt : latlonalt)
     {
         double utm_northing, utm_easting;
         UTM::LLtoUTM(llalt.x(), llalt.y(), utm_northing, utm_easting);
-        map_t_global += Eigen::Vector3d(utm_easting, utm_northing, llalt.z());
+        global_t_map += Eigen::Vector3d(utm_easting, utm_northing, llalt.z());
     }
-    map_t_global /= latlonalt.size();
+    global_t_map /= latlonalt.size();
 
     // Compute the average RPY from the compass
     double compass_yaw_avg = 0;
@@ -189,12 +189,11 @@ Eigen::Matrix4d GlobalMapFramesManager::computeGlobalTMap(const std::vector<Eige
     }
     compass_yaw_avg /= compass_yaw.size();
 
-    // Compute the map_T_global transformation and invert it for global_T_map
-    Eigen::Matrix3d map_R_global;
-    map_R_global = Eigen::AngleAxisd(compass_yaw_avg, Eigen::Vector3d::UnitZ());
-    Eigen::Matrix4d global_T_map(Eigen::Matrix4d::Identity());
-    global_T_map.block<3, 3>(0, 0) = map_R_global.transpose();
-    global_T_map.block<3, 1>(0, 3) = -map_R_global.transpose() * map_t_global;
+    // Compute the global_T_map transformation and invert it for map_T_global
+    Eigen::Matrix3d map_R_global = Eigen::AngleAxisd(-compass_yaw_avg, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+    Eigen::Matrix4d map_T_global(Eigen::Matrix4d::Identity());
+    map_T_global.block<3, 3>(0, 0) = map_R_global;
+    map_T_global.block<3, 1>(0, 3) = -map_R_global * global_t_map;
 
-    return global_T_map;
+    return map_T_global;
 }
