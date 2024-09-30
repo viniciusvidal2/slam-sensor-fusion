@@ -218,7 +218,7 @@ Eigen::Matrix4f ICPPointToPoint::calculateAlignmentTransformation()
     }
 
     // Iterate the algorithm
-    Eigen::Matrix4f target_T_source = initial_transform_;
+    Eigen::Matrix4f source_T_target = initial_transform_;
     int iterations_taken = 0;
     last_error_ = std::numeric_limits<float>::max();
     for (int i = 0; i < num_iterations_; ++i)
@@ -236,7 +236,7 @@ Eigen::Matrix4f ICPPointToPoint::calculateAlignmentTransformation()
         // Compute the best transformation for the step
         const Eigen::Matrix4f T_step = calculateStepBestTransformation(transformed_source_cloud, correspondent_target_cloud);
         // Increment the transformation with the step result
-        target_T_source = T_step * target_T_source;
+        source_T_target = T_step * source_T_target;
         // Apply the transformation to the source cloud
         applyTransformation(T_step, transformed_source_cloud);
         // Update the error for next iteration
@@ -253,8 +253,8 @@ Eigen::Matrix4f ICPPointToPoint::calculateAlignmentTransformation()
         }
         std::cout << "[ICP INFO] Total iterations taken: " << iterations_taken << std::endl;
         std::cout << "[ICP INFO] Final error: " << last_error_ << std::endl;
-        std::cout << "[ICP INFO] Final transformation matrix: " << std::endl << target_T_source << std::endl;
+        std::cout << "[ICP INFO] Final transformation matrix: " << std::endl << source_T_target << std::endl;
     }
 
-    return target_T_source;
+    return source_T_target;
 }

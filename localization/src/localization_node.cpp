@@ -6,7 +6,7 @@ LocalizationNode::LocalizationNode() : Node("localization_node")
     GlobalMapFramesManager global_map_manager("/home/vini/Desktop/map_data", "map", 50);
     map_cloud_ = global_map_manager.getMapCloud(0.1f);
     applyUniformSubsample(map_cloud_, 2);
-    map_T_global_ = global_map_manager.getMapTGlobal();
+    map_T_global_ = global_map_manager.getGlobalTMap();
 
     // Init the ICP object to compute Point to Point alignment
     const int num_iterations = 15;
@@ -26,7 +26,7 @@ LocalizationNode::LocalizationNode() : Node("localization_node")
 
     // Reference transforms
     map_T_sensor_ = Eigen::Matrix4f::Identity();
-    odom_previous_T_sensor_ = Eigen::Matrix4f::Identity();
+    odom_T_sensor_previous_ = Eigen::Matrix4f::Identity();
     map_ref_T_sensor_ = Eigen::Matrix4f::Identity();
 
     // Init the cropped map in the ref frame
@@ -69,26 +69,26 @@ LocalizationNode::LocalizationNode() : Node("localization_node")
 }
 
 inline void LocalizationNode::computePosePredictionFromOdometry(const nav_msgs::msg::Odometry::ConstSharedPtr& odom_msg,
-                                        Eigen::Matrix4f& odom_current_T_sensor,
-                                        Eigen::Matrix4f& map_current_T_sensor_odom) const
+                                                                Eigen::Matrix4f& odom_T_sensor_current,
+                                                                Eigen::Matrix4f& map_T_sensor_current_odom) const
 {
     // Get the current pose of the sensor in the odometry frame
-    Eigen::Quaternionf odom_current_q_sensor(odom_msg->pose.pose.orientation.w,
+    Eigen::Quaternionf odom_q_sensor_current(odom_msg->pose.pose.orientation.w,
                                                 odom_msg->pose.pose.orientation.x,
                                                 odom_msg->pose.pose.orientation.y,
                                                 odom_msg->pose.pose.orientation.z);
-    Eigen::Vector3f odom_current_t_sensor(odom_msg->pose.pose.position.x,
+    Eigen::Vector3f odom_t_sensor_current(odom_msg->pose.pose.position.x,
                                             odom_msg->pose.pose.position.y,
                                             odom_msg->pose.pose.position.z);
-    odom_current_T_sensor.setIdentity();
-    odom_current_T_sensor.block<3, 3>(0, 0) = odom_current_q_sensor.toRotationMatrix();
-    odom_current_T_sensor.block<3, 1>(0, 3) = odom_current_t_sensor;
+    odom_T_sensor_current.setIdentity();
+    odom_T_sensor_current.block<3, 3>(0, 0) = odom_q_sensor_current.toRotationMatrix();
+    odom_T_sensor_current.block<3, 1>(0, 3) = odom_t_sensor_current;
 
-    // Calculate the odom_current_T_odom_previous transformation matrix
-    const Eigen::Matrix4f odom_current_T_odom_previous(odom_current_T_sensor * odom_previous_T_sensor_.inverse());
+    // Calculate the previous_T_current transformation matrix
+    const Eigen::Matrix4f previous_T_current(odom_T_sensor_previous_.inverse() * odom_T_sensor_current);
 
     // Pose prediction in map frame using the relative pose found in odom frame between previous and current frame readings
-    map_current_T_sensor_odom = odom_current_T_odom_previous * map_T_sensor_;
+    map_T_sensor_current_odom = map_T_sensor_ * previous_T_current;
 }
 
 const Eigen::Matrix4f LocalizationNode::computeGpsCoarsePoseInMapFrame(const sensor_msgs::msg::NavSatFix::ConstSharedPtr& gps_msg) const
@@ -209,9 +209,9 @@ void LocalizationNode::localizationCallback(const sensor_msgs::msg::PointCloud2:
     auto start = std::chrono::high_resolution_clock::now();
     
     // Obtain the odometry prediction for the pose both in map and odom frames
-    Eigen::Matrix4f odom_current_T_sensor;
+    Eigen::Matrix4f odom_T_sensor_current;
     Eigen::Matrix4f map_current_T_sensor_odom;
-    computePosePredictionFromOdometry(odom_msg, odom_current_T_sensor, map_current_T_sensor_odom);
+    computePosePredictionFromOdometry(odom_msg, odom_T_sensor_current, map_current_T_sensor_odom);
 
     // Obtain the coarse pose from GPS and compass in the map frame, based on the global frame information
     const Eigen::Matrix4f map_current_T_sensor_gps = computeGpsCoarsePoseInMapFrame(gps_msg);
@@ -244,12 +244,12 @@ void LocalizationNode::localizationCallback(const sensor_msgs::msg::PointCloud2:
     map_T_sensor_ = icp_->calculateAlignmentTransformation();
 
     // Update the transformation in odom frame
-    odom_previous_T_sensor_ = odom_current_T_sensor;
+    odom_T_sensor_previous_ = odom_T_sensor_current;
 
     // Publish the odometry messages
     map_T_sensor_pub_->publish(buildNavOdomMsg(map_T_sensor_, "map", "sensor", pointcloud_msg->header.stamp));
     map_T_sensor_coarse_pub_->publish(buildNavOdomMsg(map_current_T_sensor_coarse, "map", "sensor", pointcloud_msg->header.stamp));
-    odom_T_sensor_pub_->publish(buildNavOdomMsg(odom_current_T_sensor, "map", "sensor", pointcloud_msg->header.stamp));
+    odom_T_sensor_pub_->publish(buildNavOdomMsg(odom_T_sensor_current, "map", "sensor", pointcloud_msg->header.stamp));
     map_T_sensor_gps_pub_->publish(buildNavOdomMsg(map_current_T_sensor_gps, "map", "sensor", pointcloud_msg->header.stamp));
 
     // Log the time taken to process the callback

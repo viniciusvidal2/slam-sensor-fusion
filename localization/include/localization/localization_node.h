@@ -48,11 +48,11 @@ public:
 private:
     /// @brief Compute the pose prediction from the odometry message
     /// @param odom_msg The odometry message
-    /// @param odom_current_T_sensor The transformation matrix for the sensor in odometry frame
-    /// @param map_current_T_sensor_odom The transformation matrix for the sensor in map frame
+    /// @param odom_T_sensor_current The transformation matrix for the sensor in odometry frame
+    /// @param map_T_sensor_current_odom The transformation matrix for the sensor in map frame based on odometry
     inline void computePosePredictionFromOdometry(const nav_msgs::msg::Odometry::ConstSharedPtr& odom_msg,
-                                           Eigen::Matrix4f& odom_current_T_sensor,
-                                           Eigen::Matrix4f& map_current_T_sensor_odom) const;
+                                           Eigen::Matrix4f& odom_T_sensor_current,
+                                           Eigen::Matrix4f& map_T_sensor_current_odom) const;
 
     /// @brief Compute the coarse pose from GPS and compass in the map frame
     /// @param gps_msg The GPS message
@@ -128,7 +128,7 @@ private:
     /// @brief Reference transforms in the node
     Eigen::Matrix4f map_T_sensor_;
     Eigen::Matrix4d map_T_global_;
-    Eigen::Matrix4f odom_previous_T_sensor_;
+    Eigen::Matrix4f odom_T_sensor_previous_;
     Eigen::Matrix4f map_ref_T_sensor_;
 
     /// @brief Map point cloud variables

@@ -46,7 +46,7 @@ public:
 
     /// @brief Get the transformation from the global to the map frame
     /// @return The transformation matrix from the global to the map frame
-    Eigen::Matrix4d getMapTGlobal() const;
+    Eigen::Matrix4d getGlobalTMap() const;
 
 private:
     /// @brief Load the odometry positions from the file
@@ -63,7 +63,7 @@ private:
     /// @param latlonalt The latitude, longitude and altitude vector in global frame
     /// @param compass_yaw The yaw angles from the compass
     /// @return The transformation matrix from the global to the map frame
-    Eigen::Matrix4d computeMapTGlobal(const std::vector<Eigen::Vector3d> &latlonalt,
+    Eigen::Matrix4d computeGlobalTMap(const std::vector<Eigen::Vector3d> &latlonalt,
                                       const std::vector<float> &compass_yaw) const;
 
     /// @brief Load the map clouds, save them to disk and return the merged cloud
