@@ -5,6 +5,7 @@ LocalizationNode::LocalizationNode() : Node("localization_node")
     // Init the map point cloud and transformation with the frames manager
     GlobalMapFramesManager global_map_manager("/home/vini/Desktop/map_data", "map", 50);
     map_cloud_ = global_map_manager.getMapCloud(0.1f);
+    applyUniformSubsample(map_cloud_, 2);
     map_T_global_ = global_map_manager.getMapTGlobal();
 
     // Init the ICP object to compute Point to Point alignment
@@ -145,11 +146,16 @@ inline nav_msgs::msg::Odometry LocalizationNode::buildNavOdomMsg(const Eigen::Ma
     return odom_msg;
 }
 
-inline void LocalizationNode::subsampleOddIndices(pcl::PointCloud<PointT>::Ptr& cloud) const
+inline void LocalizationNode::applyUniformSubsample(pcl::PointCloud<PointT>::Ptr& cloud, const std::size_t point_step) const
 {
+    if (cloud->points.size() < point_step)
+    {
+        return;
+    }
+
     pcl::PointIndices::Ptr indices(new pcl::PointIndices);
-    indices->indices.reserve(cloud->size() / 2);
-    for (size_t i = 1; i < cloud->size(); i += 2)
+    indices->indices.reserve(cloud->size()/point_step);
+    for (std::size_t i = 0; i < cloud->size(); i += point_step)
     {
         indices->indices.emplace_back(i);
     }
@@ -213,7 +219,7 @@ void LocalizationNode::localizationCallback(const sensor_msgs::msg::PointCloud2:
     // Convert the incoming point cloud and subsample
     pcl::PointCloud<PointT>::Ptr scan_cloud = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
     pcl::fromROSMsg(*pointcloud_msg, *scan_cloud);
-    subsampleOddIndices(scan_cloud);
+    applyUniformSubsample(scan_cloud, 2);
 
     // Crop the input scan around the sensor frame origin
     pcl::PointCloud<PointT>::Ptr cropped_scan_cloud = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);

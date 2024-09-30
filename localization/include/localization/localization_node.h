@@ -80,7 +80,8 @@ private:
 
     /// @brief Subsample the point cloud by keeping only the odd indices
     /// @param cloud The input point cloud
-    inline void subsampleOddIndices(pcl::PointCloud<PointT>::Ptr& cloud) const;
+    /// @param point_step The step to keep the points
+    inline void applyUniformSubsample(pcl::PointCloud<PointT>::Ptr& cloud, const std::size_t point_step) const;
 
     /// @brief Compute the pose weights from the covariance matrices
     /// @param gps_msg The GPS message
