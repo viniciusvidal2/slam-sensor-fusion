@@ -144,8 +144,9 @@ private:
     /// @brief ICP object
     std::shared_ptr<ICPPointToPoint> icp_;
 
-    /// @brief Stochastic filter object
-    std::shared_ptr<StochasticFilter> filter_;
+    /// @brief Stochastic filter objects
+    std::shared_ptr<StochasticFilter> coarse_pose_filter_;
+    std::shared_ptr<StochasticFilter> fine_pose_filter_;
 };
 
 #endif

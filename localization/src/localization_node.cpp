@@ -17,7 +17,12 @@ LocalizationNode::LocalizationNode() : Node("localization_node")
     icp_->setDebugMode(false);
 
     // Init the Stochastic Filter object
-    filter_ = std::make_shared<StochasticFilter>();
+    const std::size_t filter_queue_size = 10;
+    const float z_score_threshold = 2.0f;
+    coarse_pose_filter_ = std::make_shared<StochasticFilter>(filter_queue_size, z_score_threshold);
+    coarse_pose_filter_->setMaximumLinearVelocity(2.0f); // [m/s]
+    fine_pose_filter_ = std::make_shared<StochasticFilter>(filter_queue_size, z_score_threshold);
+    fine_pose_filter_->setMaximumLinearVelocity(2.0f); // [m/s]
 
     // Reference transforms
     map_T_sensor_ = Eigen::Matrix4f::Identity();

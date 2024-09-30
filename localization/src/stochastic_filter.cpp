@@ -1,79 +1,114 @@
 #include <localization/stochastic_filter.h>
 
-StochasticFilter::StochasticFilter()
+StochasticFilter::StochasticFilter(const std::size_t queue_size, const float n_std_dev_threshold) : 
+    queue_size_(queue_size), n_std_dev_threshold_(n_std_dev_threshold)
 {
-    odometry_poses_.reserve(covariance_filter_queue_size_);
+    // Starting the transition queue
+    pose_transition_queue_.reserve(queue_size_);
+    origin_pose_previous_ = Eigen::Matrix4f::Identity();
+
+    // Weights should be exponential, in decreasing order
+    weights_.reserve(queue_size_);
+    for (std::size_t i = 0; i < queue_size_; ++i)
+    {
+        weights_.emplace_back(1); // Temporary simple average
+    }
+    // Calculate the sum of the weights
+    const float weights_sum = std::accumulate(weights_.begin(), weights_.end(), 0.0f);
+    // Normalize the weights vector
+    for (std::size_t i = 0; i < queue_size_; ++i)
+    {
+        weights_[i] /= weights_sum;
+    }
 }
 
-void StochasticFilter::addPoseToOdometryQueue(const Eigen::Matrix4f &pose)
+inline void StochasticFilter::setQueueSize(const std::size_t queue_size)
 {
-    // Add the pose in the circular vector for efficiency
-    if (odometry_poses_.size() >= covariance_filter_queue_size_)
-    {
-        circular_vector_counter_ = (circular_vector_counter_ + 1) % covariance_filter_queue_size_;
-        odometry_poses_[circular_vector_counter_] = pose;
-    }
-    else
-    {
-        odometry_poses_.emplace_back(pose);
-        circular_vector_counter_ = static_cast<int>(odometry_poses_.size() - 1);
-    }
+    queue_size_ = queue_size;
 }
 
-Eigen::Matrix3f StochasticFilter::calculateCovarianceMatrix(const std::vector<Eigen::Matrix4f> &poses) const
+inline void StochasticFilter::setProbabilityThreshold(const float n_std_dev_threshold)
 {
-    Eigen::Matrix3f covariance_matrix = Eigen::Matrix3f::Zero();
-    Eigen::Vector3f mean_pose = Eigen::Vector3f::Zero();
-    
-    for (const auto &pose : poses)
-    {
-        mean_pose += pose.block<3, 1>(0, 3);
-    }
-    mean_pose /= poses.size();
-
-    for (const auto &pose : poses)
-    {
-        Eigen::Vector3f pose_diff = pose.block<3, 1>(0, 3) - mean_pose;
-        covariance_matrix += pose_diff * pose_diff.transpose();
-    }
-
-    return covariance_matrix / poses.size();
+    n_std_dev_threshold_ = n_std_dev_threshold;
 }
 
-void StochasticFilter::calculateCovarianceGains()
+void StochasticFilter::setMaximumLinearVelocity(const float max_linear_velocity)
 {
-    // If not enough data, simply hand the biggest weight to odometry reading
-    if (odometry_poses_.size() < minimum_poses_for_covariance_)
+    max_distance_per_scan_ = max_linear_velocity/10.0f; // Scan rate is 10 Hz
+}
+
+void StochasticFilter::addPoseToQueue(const Eigen::Matrix4f &origin_pose_current)
+{
+    if (pose_transition_queue_.size() >= queue_size_)
     {
-        gps_gain_ = 0.1f;
-        odometry_gain_ = 0.9f;
-        return;
+        pose_transition_queue_.erase(pose_transition_queue_.begin());
     }
 
-    // Calculate the covariance matrices for the GPS and odometry poses
-    const Eigen::Matrix3f odometry_covariance_matrix = calculateCovarianceMatrix(odometry_poses_);
-
-    // Calculate the gains based on the trace of the covariance matrices
-    const float gps_pose_weigth = gps_covariance_matrix_.trace();
-    const float odometry_pose_weigth = odometry_covariance_matrix.trace();
-
-    // Make the gains inverselly proportional to the trace of the covariance matrices
-    const float weight_sum = gps_pose_weigth + odometry_pose_weigth;
-    gps_gain_ = odometry_pose_weigth / weight_sum;
-    odometry_gain_ = gps_pose_weigth / weight_sum;
+    // Add relative pose from previous to current frames to the queue
+    pose_transition_queue_.push_back(origin_pose_previous_.inverse() * origin_pose_current);
+    // Update the previous pose
+    origin_pose_previous_ = origin_pose_current;
 }
 
-void StochasticFilter::setGPSCovarianceMatrix(const Eigen::Matrix3f &gps_covariance)
+float StochasticFilter::computePoseZScore(const Eigen::Matrix4f &origin_pose_previous, const Eigen::Matrix4f &origin_pose_current) const
 {
-    gps_covariance_matrix_ = gps_covariance;
+    // Calculate the average predicted current pose using the transition queue and the previous pose
+    Eigen::Matrix4f average_origin_pose_current = Eigen::Matrix4f::Zero();
+    std::vector<Eigen::Vector3f> xyz_vector;
+    xyz_vector.reserve(queue_size_);
+    for (std::size_t i = 0; i < queue_size_; ++i)
+    {
+        const Eigen::Matrix4f temp_origin_pose_current(pose_transition_queue_[i]*origin_pose_previous);
+        average_origin_pose_current += weights_[i] * temp_origin_pose_current;
+        xyz_vector.emplace_back(Eigen::Vector3f(temp_origin_pose_current.block<3, 1>(0, 3)));
+    }
+
+    const Eigen::Vector3f average_xyz(average_origin_pose_current.block<3, 1>(0, 3));
+
+    // Calculate the standard deviation of the predicted current pose
+    // We will calculate the deviation of the xyz coordinates
+    Eigen::Vector3f xyz_deviation = Eigen::Vector3f::Zero();
+    for (std::size_t i = 0; i < queue_size_; ++i)
+    {
+        xyz_deviation += weights_[i] * (xyz_vector[i] - average_xyz).cwiseAbs();
+    }
+    // Threshold the deviation using the maximum traveled distance per scan acquisition
+    xyz_deviation = xyz_deviation.cwiseMin(Eigen::Vector3f(max_distance_per_scan_/3.0f, max_distance_per_scan_/3.0f, max_distance_per_scan_/3.0f));
+
+    // Calculate the absolute z score for each observed variable
+    const Eigen::Vector3f z_scores = (origin_pose_current.block<3, 1>(0, 3) - average_xyz).cwiseAbs().cwiseQuotient(xyz_deviation);
+
+    // Return the maximum value in the z scores
+    return z_scores.maxCoeff();
 }
 
-float StochasticFilter::getGPSGain() const
+Eigen::Matrix4f StochasticFilter::applyGaussianFilterToCurrentPose(const Eigen::Matrix4f &origin_pose_previous, const Eigen::Matrix4f &origin_pose_current) const
 {
-    return gps_gain_;
+    // Calculate the z score of the current pose given the previous pose and the transition queue history
+    const float pose_z_score = computePoseZScore(origin_pose_previous, origin_pose_current);
+
+    // If the probability is below a threshold, we will apply the filter
+    if (pose_z_score > n_std_dev_threshold_)
+    {
+        // Calculate the average predicted current pose using the transition queue and the previous pose
+        Eigen::Matrix4f average_origin_pose_current = Eigen::Matrix4f::Zero();
+        for (std::size_t i = 0; i < queue_size_; ++i)
+        {
+            average_origin_pose_current += weights_[i] * pose_transition_queue_[i]*origin_pose_previous;
+        }
+
+        return average_origin_pose_current;
+    }
+
+    return origin_pose_current;
 }
 
-float StochasticFilter::getOdometryGain() const
+inline float StochasticFilter::normalPDF(const float x, const float mean, const float stddev) const
 {
-    return odometry_gain_;
+    return std::exp(-std::pow(x - mean, 2) / (2.0f * std::pow(stddev, 2))) / std::sqrt(2.0f * M_PI * std::pow(stddev, 2));
+}
+
+inline float StochasticFilter::normalCDF(double x, double mean, double stddev) const
+{
+    return static_cast<float>(0.5 * (1 + std::erf((x - mean)/(stddev*std::sqrt(2)))));
 }

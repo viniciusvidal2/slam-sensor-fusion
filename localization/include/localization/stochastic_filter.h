@@ -3,6 +3,8 @@
 #include <vector>
 #include <iostream>
 #include <iomanip>
+#include <numeric>
+#include <cmath>
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
 #include <Eigen/Core>
@@ -11,43 +13,65 @@ class StochasticFilter
 {
 public:
     /// @brief Constructor
-    StochasticFilter();
+    StochasticFilter(const std::size_t queue_size = 10, const float n_std_dev_threshold = 1.0f);
 
     /// @brief Add a pose to the odometry queue
-    void addPoseToOdometryQueue(const Eigen::Matrix4f &pose);
+    /// @param origin_pose_current The current pose to add to the queue
+    void addPoseToQueue(const Eigen::Matrix4f &origin_pose_current);
 
-    /// @brief Calculate the covariance matrix and gains based on the GPS and Odometry covariances 
-    void calculateCovarianceGains();
+    /// @brief Set the queue size
+    /// @param queue_size The queue size
+    inline void setQueueSize(const std::size_t queue_size);
 
-    /// @brief Sets the GPS covariance matrix to compute gains
-    /// @param gps_covariance 
-    void setGPSCovarianceMatrix(const Eigen::Matrix3f& gps_covariance);
+    /// @brief Set the probability threshold
+    /// @param n_std_dev_threshold The probability threshold
+    inline void setProbabilityThreshold(const float n_std_dev_threshold);
 
-    /// @brief Get the GPS gain
-    float getGPSGain() const;
+    /// @brief Set the maximum scan traveled distance based on the maximum velocity
+    /// @param max_linear_velocity The maximum linear velocity
+    void setMaximumLinearVelocity(const float max_linear_velocity);
 
-    /// @brief Get the odometry gain
-    float getOdometryGain() const;
+    /// @brief Apply a Gaussian filter to the current pose
+    /// @param origin_pose_previous The previous pose
+    /// @param origin_pose_current The current pose
+    /// @return The filtered pose
+    Eigen::Matrix4f applyGaussianFilterToCurrentPose(const Eigen::Matrix4f &origin_pose_previous, const Eigen::Matrix4f &origin_pose_current) const;
 
 private:
-    /// @brief Calculates XYZ covariance matrix from poses
-    /// @param poses: input poses queue
-    /// @return A 3x3 covariance matrix
-    Eigen::Matrix3f calculateCovarianceMatrix(const std::vector<Eigen::Matrix4f> &poses) const;
+    /// @brief Compute the pose z score of current pose based on the previous pose and transition queue
+    /// @param origin_pose_previous The previous pose
+    /// @param origin_pose_current The current pose
+    /// @return The probability of the current pose
+    float computePoseZScore(const Eigen::Matrix4f &origin_pose_previous, const Eigen::Matrix4f &origin_pose_current) const;
 
-    /// @brief Odometry poses queue to compute oodmetry covariance
-    std::vector<Eigen::Matrix4f> odometry_poses_;
+    /// @brief Compute the normal probability density function
+    /// @param x The value to evaluate
+    /// @param mean The mean of the distribution
+    /// @param stddev The standard deviation of the distribution
+    /// @return The probability density function value
+    inline float normalPDF(const float x, const float mean, const float stddev) const;
 
-    /// @brief GPS covariance matrix set from sensor
-    Eigen::Matrix3f gps_covariance_matrix_;
+    /// @brief Compute the normal cumulative distribution function
+    /// @param x The value to evaluate
+    /// @param mean The mean of the distribution
+    /// @param stddev The standard deviation of the distribution
+    /// @return The cumulative distribution function value
+    inline float normalCDF(double x, double mean, double stddev) const;
 
-    /// @brief Gains based on covariance
-    float gps_gain_{0.0f};
-    float odometry_gain_{1.0f};
+    /// @brief Pose transition queue and previous pose
+    Eigen::Matrix4f origin_pose_previous_;
+    std::vector<Eigen::Matrix4f> pose_transition_queue_;
 
-    /// @brief Covariance queue parameters
-    const std::size_t covariance_filter_queue_size_{10};
-    const std::size_t minimum_poses_for_covariance_{10};
-    int circular_vector_counter_{0};
+    /// @brief Weights vector to perform a weighted average
+    std::vector<float> weights_;
+    
+    /// @brief Queue size
+    std::size_t queue_size_;
+
+    /// @brief Probability threshold
+    float n_std_dev_threshold_;
+
+    /// @brief Maximum max distance that can be traveled in one scan
+    float max_distance_per_scan_;
 };
 #endif // STOCHASTIC_FILTER_H_
