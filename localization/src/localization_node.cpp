@@ -18,11 +18,9 @@ LocalizationNode::LocalizationNode() : Node("localization_node")
 
     // Init the Stochastic Filter object
     const std::size_t filter_queue_size = 10;
-    const float z_score_threshold = 2.0f;
+    const float z_score_threshold = 3.0f;
     coarse_pose_filter_ = std::make_shared<StochasticFilter>(filter_queue_size, z_score_threshold);
-    coarse_pose_filter_->setMaximumLinearVelocity(2.0f); // [m/s]
     fine_pose_filter_ = std::make_shared<StochasticFilter>(filter_queue_size, z_score_threshold);
-    fine_pose_filter_->setMaximumLinearVelocity(2.0f); // [m/s]
 
     // Reference transforms
     map_T_sensor_ = Eigen::Matrix4f::Identity();
@@ -216,10 +214,13 @@ void LocalizationNode::localizationCallback(const sensor_msgs::msg::PointCloud2:
     // Obtain the coarse pose from GPS and compass in the map frame, based on the global frame information
     const Eigen::Matrix4f map_T_sensor_gps = computeGpsCoarsePoseInMapFrame(gps_msg);
 
-    // Add both poses to filter and obtain the weighted coarse pose from GPS and Odometry fusion
+    // Obtain the weighted coarse pose from GPS and Odometry fusion based on covariance
     float gps_compass_gain, odometry_gain;
     computePoseGainsFromCovarianceMatrices(gps_msg, odom_msg, odometry_gain, gps_compass_gain, false);
-    const Eigen::Matrix4f map_T_sensor_coarse = odometry_gain*map_T_sensor_odom + gps_compass_gain*map_T_sensor_gps;
+    Eigen::Matrix4f map_T_sensor_coarse = odometry_gain*map_T_sensor_odom + gps_compass_gain*map_T_sensor_gps;
+    // Filter out the coarse pose to avoid sudden changes
+    map_T_sensor_coarse = coarse_pose_filter_->applyGaussianFilterToCurrentPose(map_T_sensor_, map_T_sensor_coarse);
+    coarse_pose_filter_->addPoseToQueue(map_T_sensor_coarse);
 
     // Convert the incoming point cloud and subsample
     pcl::PointCloud<PointT>::Ptr scan_cloud = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);

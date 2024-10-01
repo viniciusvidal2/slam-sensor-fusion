@@ -73,5 +73,6 @@ private:
 
     /// @brief Maximum max distance that can be traveled in one scan
     float max_distance_per_scan_;
+    float min_distance_per_scan_;
 };
 #endif // STOCHASTIC_FILTER_H_
