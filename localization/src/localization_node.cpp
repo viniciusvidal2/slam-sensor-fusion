@@ -22,6 +22,14 @@ LocalizationNode::LocalizationNode() : Node("localization_node")
     coarse_pose_filter_ = std::make_shared<StochasticFilter>(filter_queue_size, z_score_threshold);
     fine_pose_filter_ = std::make_shared<StochasticFilter>(filter_queue_size, z_score_threshold);
 
+    // Brute force alignment object to get the initial alignment
+    brute_force_alignment_ = std::make_shared<BruteForceAlignment>();
+    brute_force_alignment_->setMeanErrorThreshold(0.03f);
+    brute_force_alignment_->setXYZStep(0.1f, 0.1f, 0.05f);
+    brute_force_alignment_->setXYZRange(0.8f, 0.8f, 0.2f);
+    brute_force_alignment_->setRotationStep(M_PI/90.0f);
+    brute_force_alignment_->setRotationRange(M_PI/6.0f);
+
     // Reference transforms
     map_T_sensor_ = Eigen::Matrix4f::Identity();
     odom_T_sensor_previous_ = Eigen::Matrix4f::Identity();
@@ -237,6 +245,25 @@ void LocalizationNode::localizationCallback(const sensor_msgs::msg::PointCloud2:
     {
         cropPointCloudThroughRadius(map_T_sensor_coarse, map_cloud_, ref_cropped_map_cloud_);
         map_T_sensor_ref = map_T_sensor_coarse;
+    }
+
+    // Perform first alignment if not aligned yet to the start of the trip in map frame
+    if (!brute_force_alignment_->firstAlignmentCompleted())
+    {
+        // Apply the brute force alignment to the cropped scan and the cropped map
+        brute_force_alignment_->setInitialGuess(map_T_sensor_coarse);
+        brute_force_alignment_->setSourceCloud(cropped_scan_cloud);
+        brute_force_alignment_->setTargetCloud(ref_cropped_map_cloud_);
+        if (!brute_force_alignment_->alignClouds())
+        {
+            RCLCPP_WARN(this->get_logger(), "Brute force alignment not successfull, will keep trying.");
+            return;
+        }
+        else
+        {
+            RCLCPP_INFO(this->get_logger(), "First alignment completed, proceeding to fine alignment.");
+            map_T_sensor_coarse = brute_force_alignment_->getBestTransformation();
+        }
     }
     
     // Align the point clouds with ICP to obtain the relative transformation

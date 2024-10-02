@@ -31,7 +31,8 @@ add_executable(localization_node src/main.cpp
               src/localization_node.cpp
               src/global_map_frames_manager.cpp
               src/icp_point_to_point.cpp
-              src/stochastic_filter.cpp)
+              src/stochastic_filter.cpp
+              src/brute_force_alignment.cpp)
               
 ament_target_dependencies(localization_node rclcpp 
 rclcpp_components 

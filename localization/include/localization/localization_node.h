@@ -36,6 +36,7 @@
 #include "localization/global_map_frames_manager.h"
 #include "localization/icp_point_to_point.h"
 #include "localization/stochastic_filter.h"
+#include "localization/brute_force_alignment.h"
 
 using PointT = pcl::PointXYZ;
 
@@ -147,6 +148,9 @@ private:
     /// @brief Stochastic filter objects
     std::shared_ptr<StochasticFilter> coarse_pose_filter_;
     std::shared_ptr<StochasticFilter> fine_pose_filter_;
+
+    /// @brief Initial alignment with brute force matcher
+    std::shared_ptr<BruteForceAlignment> brute_force_alignment_;
 };
 
 #endif
