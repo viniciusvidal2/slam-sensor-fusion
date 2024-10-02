@@ -14,7 +14,7 @@ LocalizationNode::LocalizationNode() : Node("localization_node")
     const float max_correspondence_dist = 0.5f; // [m]
     const float mean_accepted_error = 0.05f; // [m]
     icp_ = std::make_shared<ICPPointToPoint>(max_correspondence_dist, num_iterations, mean_accepted_error, transformation_epsilon);
-    icp_->setDebugMode(true);
+    icp_->setDebugMode(false);
 
     // Init the Stochastic Filter object
     const std::size_t filter_queue_size = 10;
@@ -244,6 +244,7 @@ void LocalizationNode::localizationCallback(const sensor_msgs::msg::PointCloud2:
     if (coarse_T_ref.block<3, 1>(0, 3).norm() > ref_frame_distance_ || ref_cropped_map_cloud_->empty())
     {
         cropPointCloudThroughRadius(map_T_sensor_coarse, map_cloud_, ref_cropped_map_cloud_);
+        icp_->setTargetPointCloud(ref_cropped_map_cloud_);
         map_T_sensor_ref = map_T_sensor_coarse;
     }
 
@@ -267,7 +268,7 @@ void LocalizationNode::localizationCallback(const sensor_msgs::msg::PointCloud2:
     }
     
     // Align the point clouds with ICP to obtain the relative transformation
-    icp_->setInputPointClouds(cropped_scan_cloud, ref_cropped_map_cloud_);
+    icp_->setSourcePointCloud(cropped_scan_cloud);
     icp_->setInitialTransformation(map_T_sensor_coarse);
     map_T_sensor_ = icp_->calculateAlignmentTransformation();
 

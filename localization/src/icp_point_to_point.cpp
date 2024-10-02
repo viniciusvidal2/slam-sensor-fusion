@@ -9,9 +9,6 @@ ICPPointToPoint::ICPPointToPoint(const float max_correspondence_dist, const int 
 
     last_error_ = std::numeric_limits<float>::max();
     initial_transform_ = Eigen::Matrix4f::Identity();
-
-    source_cloud_pcl_ = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
-    target_cloud_pcl_ = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
 }
 
 void ICPPointToPoint::setMaxCorrespondenceDist(const float max_correspondence_dist)
@@ -44,33 +41,35 @@ void ICPPointToPoint::setDebugMode(bool debug_mode)
     debug_mode_ = debug_mode;
 }
 
-void ICPPointToPoint::setInputPointClouds(const pcl::PointCloud<PointT>::Ptr &source_cloud,
-                                         const pcl::PointCloud<PointT>::Ptr &target_cloud)
+void ICPPointToPoint::setSourcePointCloud(const pcl::PointCloud<PointT>::Ptr &source_cloud)
 {
-    source_cloud_pcl_ = source_cloud;
-    target_cloud_pcl_ = target_cloud;
-
-    source_cloud_eigen_ = convertPclToEigen(source_cloud_pcl_);
+    source_cloud_ = convertPclToEigen(source_cloud);
 }
 
-void ICPPointToPoint::souceTargetCorrespondences(Eigen::MatrixX3f& source_cloud, Eigen::MatrixX3f& target_cloud) const
+void ICPPointToPoint::setTargetPointCloud(const pcl::PointCloud<PointT>::Ptr &target_cloud)
 {
-    // Init correspondences and kdtree for target cloud
+    target_cloud_pcl_.clear();
+    target_cloud_pcl_ = *target_cloud;
+    // Add to kdtree
+    kdtree_.setInputCloud(target_cloud);
+}
+
+void ICPPointToPoint::sourceTargetCorrespondences(Eigen::MatrixX3f& source_cloud, Eigen::MatrixX3f& target_cloud) const
+{
+    // Init correspondences
     std::vector<std::pair<Eigen::Vector3f, PointT>> correspondences;
     correspondences.reserve(source_cloud.rows());
-    pcl::KdTreeFLANN<PointT> kdtree;
-    kdtree.setInputCloud(target_cloud_pcl_);
 
     // Look for valid correspondences in the target cloud
     for (int i = 0; i < source_cloud.rows(); ++i)
     {
-        const PointT source_point(source_cloud(i, 0), source_cloud(i, 1), source_cloud(i, 2));
         std::vector<int> kdtree_point_indices(1);
         std::vector<float> kdtree_point_distances(1);
-        kdtree.nearestKSearch(source_point, 1, kdtree_point_indices, kdtree_point_distances);
-        if (!kdtree_point_indices.empty())
+        kdtree_.nearestKSearch(PointT(source_cloud(i, 0), source_cloud(i, 1), source_cloud(i, 2)), 
+                                1, kdtree_point_indices, kdtree_point_distances);
+        if (!kdtree_point_indices.empty() && kdtree_point_distances[0] < max_correspondence_dist_)
         {
-            correspondences.emplace_back(std::make_pair(source_cloud.row(i), target_cloud_pcl_->points[kdtree_point_indices[0]]));
+            correspondences.emplace_back(std::make_pair(source_cloud.row(i), target_cloud_pcl_.points[kdtree_point_indices[0]]));
         }
     }
 
@@ -186,12 +185,12 @@ inline void ICPPointToPoint::printStepDebug(const int i, const float error) cons
 Eigen::Matrix4f ICPPointToPoint::calculateAlignmentTransformation()
 {
     // Apply transformation to the source cloud
-    Eigen::MatrixX3f transformed_source_cloud(source_cloud_eigen_);
+    Eigen::MatrixX3f transformed_source_cloud(source_cloud_);
     applyTransformation(initial_transform_, transformed_source_cloud);
     // Get the correspondences in the target cloud
     Eigen::MatrixX3f correspondent_target_cloud;
-    souceTargetCorrespondences(transformed_source_cloud, correspondent_target_cloud);
-    if (transformed_source_cloud.rows() < 3)
+    sourceTargetCorrespondences(transformed_source_cloud, correspondent_target_cloud);
+    if (transformed_source_cloud.rows() < 10)
     {
         std::cerr << "[ICP ERROR] Not enough valid correspondences found. Aborting." << std::endl;
         return initial_transform_;
@@ -217,7 +216,7 @@ Eigen::Matrix4f ICPPointToPoint::calculateAlignmentTransformation()
         // If transformation is already very minimal, look for the correspondences again
         if (std::abs(last_error_ - error) < transformation_epsilon_)
         {
-            souceTargetCorrespondences(transformed_source_cloud, correspondent_target_cloud);
+            sourceTargetCorrespondences(transformed_source_cloud, correspondent_target_cloud);
         }
         // Compute the best transformation for the step
         const Eigen::Matrix4f T_step = calculateStepBestTransformation(transformed_source_cloud, correspondent_target_cloud);

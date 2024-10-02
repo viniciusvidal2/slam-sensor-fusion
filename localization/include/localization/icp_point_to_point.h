@@ -55,11 +55,13 @@ public:
     /// @param initial_transformation The initial transformation matrix
     void setInitialTransformation(const Eigen::Matrix4f &initial_transformation);
 
-    /// @brief Set the input point clouds to align
+    /// @brief Set the input point clouds for the ICP algorithm
     /// @param source_cloud The source cloud
+    void setSourcePointCloud(const pcl::PointCloud<PointT>::Ptr &source_cloud);
+
+    /// @brief Set the target point cloud for the ICP algorithm
     /// @param target_cloud The target cloud
-    void setInputPointClouds(const pcl::PointCloud<PointT>::Ptr &source_cloud,
-                             const pcl::PointCloud<PointT>::Ptr &target_cloud);
+    void setTargetPointCloud(const pcl::PointCloud<PointT>::Ptr &target_cloud);
 
     /// @brief Set the debug mode flag
     void setDebugMode(bool debug_mode);
@@ -82,7 +84,7 @@ private:
     /// @brief Find the correspondences in the target cloud for the source cloud and fill the clouds with them
     /// @param source_cloud The source cloud
     /// @param target_cloud The target cloud
-    void souceTargetCorrespondences(Eigen::MatrixX3f& source_cloud, Eigen::MatrixX3f& target_cloud) const;
+    void sourceTargetCorrespondences(Eigen::MatrixX3f& source_cloud, Eigen::MatrixX3f& target_cloud) const;
 
     /// @brief Compute the best transformation from the two clouds
     /// @param source_cloud The source cloud
@@ -101,10 +103,10 @@ private:
     /// @param error The current error
     inline void printStepDebug(const int i, const float error) const;
 
-    /// @brief Point clouds to align
-    pcl::PointCloud<PointT>::Ptr source_cloud_pcl_;
-    pcl::PointCloud<PointT>::Ptr target_cloud_pcl_;
-    Eigen::MatrixX3f source_cloud_eigen_;
+    /// @brief Point clouds to align and kdtree
+    pcl::PointCloud<PointT> target_cloud_pcl_;
+    Eigen::MatrixX3f source_cloud_;
+    pcl::KdTreeFLANN<PointT> kdtree_;
 
     /// @brief ICP algorithm parameters
     float max_correspondence_dist_;
