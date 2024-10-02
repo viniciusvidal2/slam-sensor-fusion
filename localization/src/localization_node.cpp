@@ -9,7 +9,7 @@ LocalizationNode::LocalizationNode() : Node("localization_node")
     map_T_global_ = global_map_manager.getMapTGlobal();
 
     // Init the ICP object to compute Point to Point alignment
-    const int num_iterations = 8;
+    const int num_iterations = 10;
     const float transformation_epsilon = 1e-5f;
     const float max_correspondence_dist = 0.5f; // [m]
     const float mean_accepted_error = 0.05f; // [m]
@@ -17,7 +17,7 @@ LocalizationNode::LocalizationNode() : Node("localization_node")
     icp_->setDebugMode(false);
 
     // Init the Stochastic Filter object
-    const std::size_t filter_queue_size = 10;
+    const std::size_t filter_queue_size = 4;
     const float z_score_threshold = 3.0f;
     coarse_pose_filter_ = std::make_shared<StochasticFilter>(filter_queue_size, z_score_threshold);
     fine_pose_filter_ = std::make_shared<StochasticFilter>(filter_queue_size, z_score_threshold);
@@ -227,8 +227,8 @@ void LocalizationNode::localizationCallback(const sensor_msgs::msg::PointCloud2:
     computePoseGainsFromCovarianceMatrices(gps_msg, odom_msg, odometry_gain, gps_compass_gain, false);
     Eigen::Matrix4f map_T_sensor_coarse = odometry_gain*map_T_sensor_odom + gps_compass_gain*map_T_sensor_gps;
     // Filter out the coarse pose to avoid sudden changes
-    map_T_sensor_coarse = coarse_pose_filter_->applyGaussianFilterToCurrentPose(map_T_sensor_, map_T_sensor_coarse);
     coarse_pose_filter_->addPoseToQueue(map_T_sensor_coarse);
+    map_T_sensor_coarse = coarse_pose_filter_->applyGaussianFilterToCurrentPose(map_T_sensor_, map_T_sensor_coarse);
 
     // Convert the incoming point cloud and subsample
     pcl::PointCloud<PointT>::Ptr scan_cloud = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
