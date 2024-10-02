@@ -79,15 +79,10 @@ private:
     /// @param cloud The cloud to transform
     inline void applyTransformation(const Eigen::Matrix4f &T, Eigen::MatrixX3f &cloud) const;
 
-    /// @brief Filter valid correspondences in the source and target clouds
+    /// @brief Find the correspondences in the target cloud for the source cloud and fill the clouds with them
     /// @param source_cloud The source cloud
     /// @param target_cloud The target cloud
-    void filterValidCorrespondencesInClouds(Eigen::MatrixX3f &source_cloud, Eigen::MatrixX3f &target_cloud) const;
-
-    /// @brief Find the correspondences in the target cloud for the source cloud
-    /// @param source_cloud The source cloud
-    /// @return The correspondences in the target cloud
-    Eigen::MatrixX3f findSourceCorrespondencesInTargetCloud(const Eigen::MatrixX3f& source_cloud) const;
+    void souceTargetCorrespondences(Eigen::MatrixX3f& source_cloud, Eigen::MatrixX3f& target_cloud) const;
 
     /// @brief Compute the best transformation from the two clouds
     /// @param source_cloud The source cloud

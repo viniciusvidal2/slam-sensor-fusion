@@ -53,54 +53,35 @@ void ICPPointToPoint::setInputPointClouds(const pcl::PointCloud<PointT>::Ptr &so
     source_cloud_eigen_ = convertPclToEigen(source_cloud_pcl_);
 }
 
-void ICPPointToPoint::filterValidCorrespondencesInClouds(Eigen::MatrixX3f &source_cloud, Eigen::MatrixX3f &target_cloud) const
+void ICPPointToPoint::souceTargetCorrespondences(Eigen::MatrixX3f& source_cloud, Eigen::MatrixX3f& target_cloud) const
 {
-    // Filter valid correspondences (where both source and target are nonzero)
-    std::vector<Eigen::Vector3f> valid_source_correspondences_points, valid_target_correspondences_points;
-    valid_source_correspondences_points.reserve(source_cloud.rows());
-    valid_target_correspondences_points.reserve(target_cloud.rows());
-    for (int i = 0; i < source_cloud.rows(); ++i)
-    {
-        if (target_cloud(i, 0) != 0.0f && target_cloud(i, 1) != 0.0f && target_cloud(i, 2) != 0.0f)
-        {
-            valid_source_correspondences_points.emplace_back(source_cloud.row(i));
-            valid_target_correspondences_points.emplace_back(target_cloud.row(i));
-        }
-    }
-    source_cloud.resize(valid_source_correspondences_points.size(), 3);
-    target_cloud.resize(valid_target_correspondences_points.size(), 3);
-    for (std::size_t i = 0; i < valid_source_correspondences_points.size(); ++i)
-    {
-        source_cloud.row(i) = valid_source_correspondences_points[i];
-        target_cloud.row(i) = valid_target_correspondences_points[i];
-    }
-}
-
-Eigen::MatrixX3f ICPPointToPoint::findSourceCorrespondencesInTargetCloud(const Eigen::MatrixX3f& source_cloud) const
-{
-    Eigen::MatrixX3f correspondent_target_cloud(source_cloud.rows(), 3);
-    correspondent_target_cloud.setZero();
+    // Init correspondences and kdtree for target cloud
+    std::vector<std::pair<Eigen::Vector3f, PointT>> correspondences;
+    correspondences.reserve(source_cloud.rows());
     pcl::KdTreeFLANN<PointT> kdtree;
     kdtree.setInputCloud(target_cloud_pcl_);
 
+    // Look for valid correspondences in the target cloud
     for (int i = 0; i < source_cloud.rows(); ++i)
     {
-        const PointT source_point = PointT(source_cloud(i, 0), source_cloud(i, 1), source_cloud(i, 2));
+        const PointT source_point(source_cloud(i, 0), source_cloud(i, 1), source_cloud(i, 2));
         std::vector<int> kdtree_point_indices(1);
         std::vector<float> kdtree_point_distances(1);
         kdtree.nearestKSearch(source_point, 1, kdtree_point_indices, kdtree_point_distances);
         if (!kdtree_point_indices.empty())
         {
-            if (kdtree_point_distances[0] < max_correspondence_dist_)
-            {
-                correspondent_target_cloud(i, 0) = target_cloud_pcl_->points[kdtree_point_indices[0]].x;
-                correspondent_target_cloud(i, 1) = target_cloud_pcl_->points[kdtree_point_indices[0]].y;
-                correspondent_target_cloud(i, 2) = target_cloud_pcl_->points[kdtree_point_indices[0]].z;
-            }
+            correspondences.emplace_back(std::make_pair(source_cloud.row(i), target_cloud_pcl_->points[kdtree_point_indices[0]]));
         }
     }
 
-    return correspondent_target_cloud;
+    // Reset the input clouds with the correspondences
+    source_cloud.resize(correspondences.size(), 3);
+    target_cloud.resize(correspondences.size(), 3);
+    for (std::size_t i = 0; i < correspondences.size(); ++i)
+    {
+        source_cloud.row(i) = correspondences[i].first;
+        target_cloud.row(i) = Eigen::Vector3f(correspondences[i].second.x, correspondences[i].second.y, correspondences[i].second.z);
+    }
 }
 
 inline Eigen::MatrixX3f ICPPointToPoint::convertPclToEigen(const pcl::PointCloud<PointT>::Ptr &cloud) const
@@ -208,9 +189,8 @@ Eigen::Matrix4f ICPPointToPoint::calculateAlignmentTransformation()
     Eigen::MatrixX3f transformed_source_cloud(source_cloud_eigen_);
     applyTransformation(initial_transform_, transformed_source_cloud);
     // Get the correspondences in the target cloud
-    Eigen::MatrixX3f correspondent_target_cloud = findSourceCorrespondencesInTargetCloud(transformed_source_cloud);
-    // Filter for valid correspondences
-    filterValidCorrespondencesInClouds(transformed_source_cloud, correspondent_target_cloud);
+    Eigen::MatrixX3f correspondent_target_cloud;
+    souceTargetCorrespondences(transformed_source_cloud, correspondent_target_cloud);
     if (transformed_source_cloud.rows() < 3)
     {
         std::cerr << "[ICP ERROR] Not enough valid correspondences found. Aborting." << std::endl;
