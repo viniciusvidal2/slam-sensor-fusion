@@ -5,16 +5,16 @@ LocalizationNode::LocalizationNode() : Node("localization_node")
     // Init the map point cloud and transformation with the frames manager
     GlobalMapFramesManager global_map_manager("/home/vini/Desktop/map_data", "map", 50);
     map_cloud_ = global_map_manager.getMapCloud(0.1f);
-    applyUniformSubsample(map_cloud_, 2);
+    applyUniformSubsample(map_cloud_, 3);
     map_T_global_ = global_map_manager.getMapTGlobal();
 
     // Init the ICP object to compute Point to Point alignment
-    const int num_iterations = 15;
+    const int num_iterations = 8;
     const float transformation_epsilon = 1e-5f;
-    const float max_correspondence_dist = 1.0f; // [m]
-    const float mean_accepted_error = 0.01f; // [m]
+    const float max_correspondence_dist = 0.5f; // [m]
+    const float mean_accepted_error = 0.05f; // [m]
     icp_ = std::make_shared<ICPPointToPoint>(max_correspondence_dist, num_iterations, mean_accepted_error, transformation_epsilon);
-    icp_->setDebugMode(false);
+    icp_->setDebugMode(true);
 
     // Init the Stochastic Filter object
     const std::size_t filter_queue_size = 10;

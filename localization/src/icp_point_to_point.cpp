@@ -209,9 +209,15 @@ Eigen::Matrix4f ICPPointToPoint::calculateAlignmentTransformation()
         {
             printStepDebug(i, error);
         }
-        if (error < acceptable_mean_error_ || std::abs(last_error_ - error) < transformation_epsilon_)
+        // Check if we reached the acceptable error
+        if (error < acceptable_mean_error_)
         {
             break;
+        }
+        // If transformation is already very minimal, look for the correspondences again
+        if (std::abs(last_error_ - error) < transformation_epsilon_)
+        {
+            souceTargetCorrespondences(transformed_source_cloud, correspondent_target_cloud);
         }
         // Compute the best transformation for the step
         const Eigen::Matrix4f T_step = calculateStepBestTransformation(transformed_source_cloud, correspondent_target_cloud);
