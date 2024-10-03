@@ -8,6 +8,7 @@
 #include <memory>
 #include <functional>
 #include <signal.h>
+#include <cstdlib> 
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -151,6 +152,9 @@ private:
 
     /// @brief Initial alignment with brute force matcher
     std::shared_ptr<BruteForceAlignment> brute_force_alignment_;
+
+    /// @brief Debug flag
+    bool debug_{false};
 };
 
 #endif

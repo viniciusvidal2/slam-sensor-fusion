@@ -2,8 +2,20 @@
 
 LocalizationNode::LocalizationNode() : Node("localization_node")
 {
+    // Parameters
+    this->declare_parameter<bool>("enable_debug", false);
+    this->declare_parameter<std::string>("map_data_path", std::string(std::getenv("HOME")) + "/Desktop/map_data");
+    this->declare_parameter<std::string>("map_name", "map");
+    this->declare_parameter<double>("max_map_optimization_poses", 50.0);
+
+    // Set debug
+    debug_ = this->get_parameter("enable_debug").as_bool();
+
     // Init the map point cloud and transformation with the frames manager
-    GlobalMapFramesManager global_map_manager("/home/vini/Desktop/map_data", "map", 50);
+    std::string map_data_path = this->get_parameter("map_data_path").as_string();
+    std::string map_name = this->get_parameter("map_name").as_string();
+    int maximum_number_of_poses_to_optimize_map_T_global = static_cast<int>(this->get_parameter("max_map_optimization_poses").as_double());
+    GlobalMapFramesManager global_map_manager(map_data_path, map_name, maximum_number_of_poses_to_optimize_map_T_global);
     map_cloud_ = global_map_manager.getMapCloud(0.1f);
     applyUniformSubsample(map_cloud_, 3);
     map_T_global_ = global_map_manager.getMapTGlobal();
@@ -14,7 +26,7 @@ LocalizationNode::LocalizationNode() : Node("localization_node")
     const float max_correspondence_dist = 0.5f; // [m]
     const float mean_accepted_error = 0.05f; // [m]
     icp_ = std::make_shared<ICPPointToPoint>(max_correspondence_dist, num_iterations, mean_accepted_error, transformation_epsilon);
-    icp_->setDebugMode(false);
+    icp_->setDebugMode(debug_);
 
     // Init the Stochastic Filter object
     const std::size_t filter_queue_size = 4;
@@ -46,7 +58,7 @@ LocalizationNode::LocalizationNode() : Node("localization_node")
     cropped_scan_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/localization/cropped_scan_map_frame", 10);
     map_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/localization/map", 10);
 
-    // Compass subscriber will be used to get the yaw angle
+    // Compass subscriber, will be used to get the yaw angle
     compass_subscription_ = this->create_subscription<std_msgs::msg::Float64>(
         "/mavros/global_position/compass_hdg",
         10,
@@ -275,30 +287,33 @@ void LocalizationNode::localizationCallback(const sensor_msgs::msg::PointCloud2:
     // Update the transformation in odom frame
     odom_T_sensor_previous_ = odom_T_sensor_current;
 
-    // Publish the odometry messages
+    // Publish the localized pose in map frame
     map_T_sensor_pub_->publish(buildNavOdomMsg(map_T_sensor_, "map", "sensor", pointcloud_msg->header.stamp));
-    map_T_sensor_coarse_pub_->publish(buildNavOdomMsg(map_T_sensor_coarse, "map", "sensor", pointcloud_msg->header.stamp));
-    odom_T_sensor_pub_->publish(buildNavOdomMsg(odom_T_sensor_current, "map", "sensor", pointcloud_msg->header.stamp));
-    map_T_sensor_gps_pub_->publish(buildNavOdomMsg(map_T_sensor_gps, "map", "sensor", pointcloud_msg->header.stamp));
 
-    // Log the time taken to process the callback
-    auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> elapsed = end - start;
-    RCLCPP_INFO(this->get_logger(), "CALLBACK TOOK %f seconds", elapsed.count());
-
-    // Publish the cropped scan
-    pcl::transformPointCloud(*cropped_scan_cloud, *cropped_scan_cloud, map_T_sensor_);
-    cropped_scan_cloud->header.frame_id = "map";
-    sensor_msgs::msg::PointCloud2 cropped_scan_msg;
-    pcl::toROSMsg(*cropped_scan_cloud, cropped_scan_msg);
-    cropped_scan_msg.header = pointcloud_msg->header;
-    cropped_scan_msg.header.frame_id = "map";
-    cropped_scan_pub_->publish(cropped_scan_msg);
-    // Publish the cropped map
-    ref_cropped_map_cloud_->header.frame_id = "map";
-    sensor_msgs::msg::PointCloud2 cropped_map_msg;
-    pcl::toROSMsg(*ref_cropped_map_cloud_, cropped_map_msg);
-    cropped_map_msg.header = pointcloud_msg->header;
-    cropped_map_msg.header.frame_id = "map";
-    map_pub_->publish(cropped_map_msg);
+    if (debug_)
+    {
+        // Log the time taken to process the callback
+        auto end = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> elapsed = end - start;
+        RCLCPP_INFO(this->get_logger(), "CALLBACK TOOK %f seconds", elapsed.count());
+        // Publish debug poses
+        map_T_sensor_coarse_pub_->publish(buildNavOdomMsg(map_T_sensor_coarse, "map", "sensor", pointcloud_msg->header.stamp));
+        odom_T_sensor_pub_->publish(buildNavOdomMsg(odom_T_sensor_current, "map", "sensor", pointcloud_msg->header.stamp));
+        map_T_sensor_gps_pub_->publish(buildNavOdomMsg(map_T_sensor_gps, "map", "sensor", pointcloud_msg->header.stamp));
+        // Publish the cropped scan
+        pcl::transformPointCloud(*cropped_scan_cloud, *cropped_scan_cloud, map_T_sensor_);
+        cropped_scan_cloud->header.frame_id = "map";
+        sensor_msgs::msg::PointCloud2 cropped_scan_msg;
+        pcl::toROSMsg(*cropped_scan_cloud, cropped_scan_msg);
+        cropped_scan_msg.header = pointcloud_msg->header;
+        cropped_scan_msg.header.frame_id = "map";
+        cropped_scan_pub_->publish(cropped_scan_msg);
+        // Publish the cropped map
+        ref_cropped_map_cloud_->header.frame_id = "map";
+        sensor_msgs::msg::PointCloud2 cropped_map_msg;
+        pcl::toROSMsg(*ref_cropped_map_cloud_, cropped_map_msg);
+        cropped_map_msg.header = pointcloud_msg->header;
+        cropped_map_msg.header.frame_id = "map";
+        map_pub_->publish(cropped_map_msg);
+    }
 }

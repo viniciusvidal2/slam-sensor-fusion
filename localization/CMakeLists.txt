@@ -25,7 +25,7 @@ find_package(message_filters REQUIRED)
 # find PCL
 find_package(PCL REQUIRED)
 
-include_directories(include ${cilantro_INCLUDE_DIRS})
+include_directories(include)
 
 add_executable(localization_node src/main.cpp 
               src/localization_node.cpp
@@ -48,6 +48,10 @@ message_filters
 install(TARGETS
   localization_node
   DESTINATION lib/${PROJECT_NAME}
+)
+
+install(DIRECTORY launch/
+  DESTINATION share/${PROJECT_NAME}/launch
 )
 
 ament_package()
