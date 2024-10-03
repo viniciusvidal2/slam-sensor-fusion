@@ -8,6 +8,7 @@
 #include <memory>
 #include <functional>
 #include <signal.h>
+#include <cstdlib>
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -73,6 +74,9 @@ private:
 
     /// @brief Yaw angle from compass
     double current_compass_yaw_{0.0}; // -M_PI to M_PI [RAD]
+
+    /// @brief Debug flag
+    bool debug_{false};
 };
 
 #endif  // MAP_DATA_SAVE_NODE_H

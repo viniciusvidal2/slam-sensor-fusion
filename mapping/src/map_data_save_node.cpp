@@ -2,12 +2,17 @@
 
 MapDataSaver::MapDataSaver() : Node("map_data_saver")
 {
+    // Parameters
+    this->declare_parameter<std::string>("map_data_path", std::string(std::getenv("HOME")) + "/Desktop/map_data");
+    this->declare_parameter<bool>("enable_debug", false);
+    folder_save_path_ = this->get_parameter("map_data_path").as_string();
+    debug_ = this->get_parameter("enable_debug").as_bool();
+
     // Register the shutdown routine
     rclcpp::on_shutdown(std::bind(&MapDataSaver::onShutdown, this));
     
     // Create a folder, making sure it does not exist before
     // If it exists, delete it and create it again
-    folder_save_path_ = "/home/vini/Desktop/map_data";
     if (FileManipulation::directoryExists(folder_save_path_))
     {
         std::string command = "rm -rf " + folder_save_path_;
@@ -67,7 +72,10 @@ void MapDataSaver::mappingCallback(const sensor_msgs::msg::PointCloud2::ConstSha
     {
         std::string cloud_file_path = folder_save_path_ + "/cloud_" + std::to_string(cloud_counter_) + ".pcd";
         pcl::io::savePCDFileBinary(cloud_file_path, *cloud_map_frame_);
-        RCLCPP_INFO(this->get_logger(), "Saved cloud %d", cloud_counter_);
+        if (debug_)
+        {
+            RCLCPP_INFO(this->get_logger(), "Saved cloud %d", cloud_counter_);
+        }
         cloud_map_frame_->clear();
     }
 
@@ -97,6 +105,9 @@ void MapDataSaver::onShutdown()
     {
         std::string cloud_file_path = folder_save_path_ + "/cloud_" + std::to_string(cloud_counter_) + ".pcd";
         pcl::io::savePCDFileBinary(cloud_file_path, *cloud_map_frame_);
-        RCLCPP_INFO(this->get_logger(), "Saved cloud %d", cloud_counter_);
+        if (debug_)
+        {
+            RCLCPP_INFO(this->get_logger(), "Saved cloud %d", cloud_counter_);
+        }
     }
 }
