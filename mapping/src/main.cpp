@@ -6,15 +6,16 @@
 #include <memory>
 #include <functional>
 #include <signal.h>
-#include <rclcpp/rclcpp.hpp>
+#include <ros/ros.h>
 
 #include "mapping/map_data_save_node.h"
 
 int main(int argc, char * argv[])
 {
-    rclcpp::init(argc, argv);
-    auto node = std::make_shared<MapDataSaver>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
+    ros::init(argc, argv, "map_data_save_node");
+    ros::NodeHandle nh;
+    std::shared_ptr<MapDataSaver> node = std::make_shared<MapDataSaver>(nh);
+    ros::spin();
+    ros::shutdown();
     return 0;
 }
