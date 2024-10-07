@@ -1,0 +1,11 @@
+<launch>
+  <!-- Declare arguments -->
+  <arg name="map_data_path" default="$(env HOME)/Desktop/map_data" />
+  <arg name="enable_debug" default="false" />
+
+  <!-- Launch the localization node -->
+  <node pkg="mapping" type="map_data_save_node" name="mapping_node" output="screen">
+    <param name="map_data_path" value="$(arg map_data_path)" />
+    <param name="enable_debug" value="$(arg enable_debug)" />
+  </node>
+</launch>
