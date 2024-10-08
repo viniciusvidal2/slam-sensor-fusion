@@ -27,7 +27,7 @@ Panels:
     Experimental: false
     Name: Time
     SyncMode: 0
-    SyncSource: Map
+    SyncSource: ""
 Visualization Manager:
   Class: ""
   Displays:
@@ -148,7 +148,7 @@ Visualization Manager:
         Value: true
       Enabled: true
       Keep: 1
-      Name: Coarse pose
+      Name: Prior pose
       Position Tolerance: 0.10000000149011612
       Shape:
         Alpha: 1
@@ -166,7 +166,7 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /localization/map_T_sensor_coarse
+        Value: /localization/map_T_sensor_prior
       Value: true
     - Angle Tolerance: 0.10000000149011612
       Class: rviz_default_plugins/Odometry

@@ -32,7 +32,7 @@ std::vector<Eigen::Vector3d> GlobalMapFramesManager::loadOdometryPositions(const
     return odom_positions;
 }
 
-std::vector<std::pair<Eigen::Vector3d, float>> GlobalMapFramesManager::loadGlobalInfo(const std::string &gps_yaw_file) const
+std::vector<std::pair<Eigen::Vector3d, float>> GlobalMapFramesManager::loadGlobalInfo(const std::string &gps_yaw_file)
 {
     std::vector<std::pair<Eigen::Vector3d, float>> latlonalt_yaw;
     std::ifstream file(gps_yaw_file);
@@ -55,9 +55,39 @@ std::vector<std::pair<Eigen::Vector3d, float>> GlobalMapFramesManager::loadGloba
         float yaw;
         iss >> latlonalt.x() >> latlonalt.y() >> latlonalt.z() >> yaw;
         latlonalt_yaw.push_back(std::make_pair(latlonalt, yaw));
+
+        // Save to the GPS table
+        if (latlonalt.z() > 0)
+        {
+            gps_altitude_table_.push_back(latlonalt);
+        }
+    }
+    
+    return latlonalt_yaw;
+}
+
+float GlobalMapFramesManager::getClosestAltitude(const double lat, const double lon) const
+{
+    // Check if the table is empty
+    if (gps_altitude_table_.empty())
+    {
+        return 0.0f;
     }
 
-    return latlonalt_yaw;
+    // Find the closest latitude and longitude and return the correspondent altitude
+    double min_dist = std::numeric_limits<double>::max();
+    float match_altitude = 0.0f;
+    for (auto &latlonalt : gps_altitude_table_)
+    {
+        const double dist = std::sqrt(std::pow(lat - latlonalt.x(), 2) + std::pow(lon - latlonalt.y(), 2));
+        if (dist < min_dist)
+        {
+            min_dist = dist;
+            match_altitude = latlonalt.z();
+        }
+    }
+    
+    return match_altitude;
 }
 
 pcl::PointCloud<PointT>::Ptr GlobalMapFramesManager::getMapCloud(const float voxel_size) const
@@ -120,32 +150,51 @@ pcl::PointCloud<PointT>::Ptr GlobalMapFramesManager::mergeScansAndSave(const flo
     return map_cloud;
 }
 
-Eigen::Matrix4d GlobalMapFramesManager::getMapTGlobal() const
+bool GlobalMapFramesManager::filterBadReadings(std::vector<Eigen::Vector3d> &odom_positions,
+                                              std::vector<std::pair<Eigen::Vector3d, float>> &latlonalt_yaw) const
+{
+    // Check if the sizes of the vectors are the same
+    if (odom_positions.size() != latlonalt_yaw.size())
+    {
+        std::cerr << "Error: the sizes of the vectors are not the same!" << std::endl;
+        return false;
+    }
+
+    // Filter the bad readings
+    std::vector<Eigen::Vector3d> odom_positions_filtered;
+    std::vector<std::pair<Eigen::Vector3d, float>> latlonalt_yaw_filtered;
+    for (size_t i = 0; i < odom_positions.size(); ++i)
+    {
+        if (odom_positions[i].head<2>().norm() < 0.1 && latlonalt_yaw[i].first.z() > 0)
+        {
+            odom_positions_filtered.push_back(odom_positions[i]);
+            latlonalt_yaw_filtered.push_back(latlonalt_yaw[i]);
+        }
+    }
+
+    // Update the vectors
+    odom_positions = odom_positions_filtered;
+    latlonalt_yaw = latlonalt_yaw_filtered;
+
+    return odom_positions.size() > 3;
+}
+
+Eigen::Matrix4d GlobalMapFramesManager::getMapTGlobal()
 {
     // Load the odometry positions and the global info
     std::string odom_positions_file = data_folder_ + "/odometry_positions.txt";
     std::string gps_yaw_file = data_folder_ + "/gps_imu_poses.txt";
     std::vector<Eigen::Vector3d> odom_positions = loadOdometryPositions(odom_positions_file);
     std::vector<std::pair<Eigen::Vector3d, float>> latlonalt_yaw = loadGlobalInfo(gps_yaw_file);
-
-    // Check how many odometry positions are valid (less than 0.3 meters drift)
-    const double max_odom_drift{0.1}; // [m]
-    std::vector<Eigen::Vector3d> valid_odom_positions;
-    valid_odom_positions.reserve(odom_positions.size());
-    for (const auto& odom_pos : odom_positions)
+    filterBadReadings(odom_positions, latlonalt_yaw);
+    if (odom_positions.empty() || latlonalt_yaw.empty())
     {
-        if (odom_pos.head<2>().norm() < max_odom_drift)
-        {
-            valid_odom_positions.emplace_back(odom_pos);
-        }
-        else
-        {
-            break;
-        }
+        std::cerr << "Error: no valid odometry or global info data!" << std::endl;
+        return Eigen::Matrix4d::Identity();
     }
 
     // Get the size to compute the best transform as the lowest of the three
-    std::vector<std::size_t> sizes{valid_odom_positions.size(), latlonalt_yaw.size(), num_poses_max_};
+    std::vector<std::size_t> sizes{latlonalt_yaw.size(), num_poses_max_};
     const std::size_t compute_size = *std::min_element(sizes.begin(), sizes.end());
     latlonalt_yaw = std::vector<std::pair<Eigen::Vector3d, float>>(latlonalt_yaw.begin(), latlonalt_yaw.begin() + compute_size);
 

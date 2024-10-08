@@ -62,6 +62,10 @@ public:
     /// @param initial_guess The initial guess for the alignment
     void setInitialGuess(const Eigen::Matrix4f &initial_guess);
 
+    /// @brief Reset the first alignment flag
+    /// @param value The value to set the flag
+    void resetFirstAlignment(const bool value);
+
     /// @brief Align the source cloud to the target cloud using brute force search
     /// @return True if the alignment was successful, false otherwise
     bool alignClouds();

@@ -46,7 +46,13 @@ public:
 
     /// @brief Get the transformation from the global to the map frame
     /// @return The transformation matrix from the global to the map frame
-    Eigen::Matrix4d getMapTGlobal() const;
+    Eigen::Matrix4d getMapTGlobal();
+
+    /// @brief Get the closest altitude in the lat lon alt table
+    /// @param lat The latitude
+    /// @param lon The longitude
+    /// @return The closest altitude
+    float getClosestAltitude(const double lat, const double lon) const;
 
 private:
     /// @brief Load the odometry positions from the file
@@ -57,7 +63,7 @@ private:
     /// @brief Load the global info from the GPS and IMU
     /// @param gps_rpy_positions_file The file with the GPS and IMU positions
     /// @return A vector with the latitude, longitude, altitude and yaw
-    std::vector<std::pair<Eigen::Vector3d, float>> loadGlobalInfo(const std::string &gps_rpy_positions_file) const;
+    std::vector<std::pair<Eigen::Vector3d, float>> loadGlobalInfo(const std::string &gps_rpy_positions_file);
 
     /// @brief Compute the transformation from the global to the map frame
     /// @param latlonalt The latitude, longitude and altitude vector in global frame
@@ -71,10 +77,20 @@ private:
     /// @return The merged cloud
     pcl::PointCloud<PointT>::Ptr mergeScansAndSave(const float voxel_size) const;
 
+    /// @brief Filter the bad readings from the odometry and global info vectors
+    /// @param odom_positions The odometry positions
+    /// @param latlonalt_yaw The latitude, longitude, altitude and yaw vectors
+    /// @return True if the filtering was successful
+    bool filterBadReadings(std::vector<Eigen::Vector3d> &odom_positions,
+                        std::vector<std::pair<Eigen::Vector3d, float>> &latlonalt_yaw) const;
+
     /// @brief Data folder where the map data is stored
     std::string data_folder_, map_name_;
 
     /// @brief Maximum number of poses to consider for the map
     std::size_t num_poses_max_;
+
+    /// @brief The GPS altitude table for reference - avoid altitude drifts from different runs
+    std::vector<Eigen::Vector3d> gps_altitude_table_;
 };
 #endif

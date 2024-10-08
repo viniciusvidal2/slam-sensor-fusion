@@ -38,6 +38,7 @@
 #include "localization/icp_point_to_point.h"
 #include "localization/stochastic_filter.h"
 #include "localization/brute_force_alignment.h"
+#include "localization/point_cloud_processing.hpp"
 
 using PointT = pcl::PointXYZ;
 
@@ -61,14 +62,6 @@ private:
     /// @return The transformation matrix from the map to the sensor frame using gps and compass
     const Eigen::Matrix4f computeGpsCoarsePoseInMapFrame(const sensor_msgs::msg::NavSatFix::ConstSharedPtr& gps_msg) const;
 
-    /// @brief Crop the point cloud around the transformation matrix
-    /// @param T The transformation matrix
-    /// @param cloud The input point cloud
-    /// @param cropped_cloud The output cropped point cloud
-    void cropPointCloudThroughRadius(const Eigen::Matrix4f& T,
-                                     const pcl::PointCloud<PointT>::Ptr& cloud,
-                                     pcl::PointCloud<PointT>::Ptr& cropped_cloud) const;
-
     /// @brief Build a nav_msgs::Odometry message from a transformation matrix
     /// @param T The transformation matrix
     /// @param frame_id The frame id
@@ -80,11 +73,6 @@ private:
                                                    const std::string& child_frame_id, 
                                                    const rclcpp::Time& stamp) const;
 
-    /// @brief Subsample the point cloud by keeping only the odd indices
-    /// @param cloud The input point cloud
-    /// @param point_step The step to keep the points
-    inline void applyUniformSubsample(pcl::PointCloud<PointT>::Ptr& cloud, const std::size_t point_step) const;
-
     /// @brief Compute the pose weights from the covariance matrices
     /// @param gps_msg The GPS message
     /// @param odom_msg The odometry message
@@ -94,6 +82,19 @@ private:
     void computePoseGainsFromCovarianceMatrices(const sensor_msgs::msg::NavSatFix::ConstSharedPtr& gps_msg,
                                                 const nav_msgs::msg::Odometry::ConstSharedPtr& odom_msg,
                                                 float& odom_gain, float& gps_gain, const bool fixed) const;
+
+    /// @brief Initialize the poses with the first reading
+    /// @param gps_msg The GPS message
+    /// @param odom_msg The odometry message
+    void initializePosesWithFirstReading(const sensor_msgs::msg::NavSatFix::ConstSharedPtr& gps_msg,
+                                        const nav_msgs::msg::Odometry::ConstSharedPtr& odom_msg);
+
+    /// @brief Perform the coarse alignment between the scan and the map
+    /// @param scan_cloud The scan point cloud
+    /// @param map_cloud The map point cloud
+    /// @return True if the alignment was successful, false otherwise
+    bool performCoarseAlignment(const pcl::PointCloud<PointT>::Ptr& scan_cloud,
+                                const pcl::PointCloud<PointT>::Ptr& map_cloud);
 
     /// @brief Callback for the localization node
     /// @param pointcloud_msg The incoming point cloud message
@@ -118,7 +119,7 @@ private:
 
     /// @brief Publishers
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr map_T_sensor_pub_;
-    rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr map_T_sensor_coarse_pub_;
+    rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr map_T_sensor_prior_pub_;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_T_sensor_pub_;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr map_T_sensor_gps_pub_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cropped_scan_pub_;
@@ -131,7 +132,7 @@ private:
     Eigen::Matrix4f map_T_sensor_;
     Eigen::Matrix4d map_T_global_;
     Eigen::Matrix4f odom_T_sensor_previous_;
-    Eigen::Matrix4f map_T_sensor_ref;
+    Eigen::Matrix4f map_T_ref_;
 
     /// @brief Map point cloud variables
     pcl::PointCloud<PointT>::Ptr map_cloud_;
@@ -146,6 +147,9 @@ private:
     /// @brief ICP object
     std::shared_ptr<ICPPointToPoint> icp_;
 
+    /// @brief Global frame manager object
+    std::shared_ptr<GlobalMapFramesManager> global_map_frames_manager_;
+
     /// @brief Stochastic filter objects
     std::shared_ptr<StochasticFilter> coarse_pose_filter_;
     std::shared_ptr<StochasticFilter> fine_pose_filter_;
@@ -155,6 +159,12 @@ private:
 
     /// @brief Debug flag
     bool debug_{false};
+
+    /// @brief Checking if first time we enter the callback to have a reference point
+    bool first_time_{true};
+
+    /// @brief Flag to tell if the coarse alignment is complete
+    bool coarse_alignment_complete_{false};
 };
 
 #endif

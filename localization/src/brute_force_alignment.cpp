@@ -57,6 +57,11 @@ void BruteForceAlignment::setTargetCloud(const pcl::PointCloud<PointT>::Ptr &clo
     target_cloud_ = cloud;
 }
 
+void BruteForceAlignment::resetFirstAlignment(const bool value)
+{
+    first_alignment_completed_ = value;
+}
+
 bool BruteForceAlignment::alignClouds()
 {
     // Initialize the best transformation
@@ -137,7 +142,7 @@ bool BruteForceAlignment::firstAlignmentCompleted() const
 
 Eigen::Matrix4f BruteForceAlignment::getBestTransformation() const
 {
-    return map_T_sensor_best_;
+    return first_alignment_completed_ ? map_T_sensor_best_ : map_T_sensor_previous_;
 }
 
 void BruteForceAlignment::createTestTransformSequences(std::vector<float>& x_test, std::vector<float>& y_test, std::vector<float>& z_test, std::vector<float>& yaw_test)
