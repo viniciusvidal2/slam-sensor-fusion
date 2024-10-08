@@ -18,11 +18,13 @@
 #include <pcl/features/normal_3d.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/crop_box.h>
-#include <rclcpp/rclcpp.hpp>
-#include <sensor_msgs/msg/point_cloud2.hpp>
-#include <sensor_msgs/msg/nav_sat_fix.hpp>
-#include <nav_msgs/msg/odometry.hpp>
-#include <std_msgs/msg/float64.hpp>
+
+#include <ros/ros.h>
+#include <sensor_msgs/PointCloud2.h>
+#include <sensor_msgs/NavSatFix.h>
+#include <nav_msgs/Odometry.h>
+#include <std_msgs/Float64.h>
+
 #include <message_filters/subscriber.h>
 #include <message_filters/sync_policies/approximate_time.h>
 #include <message_filters/synchronizer.h>
@@ -31,41 +33,41 @@
 
 using PointT = pcl::PointXYZ;
 
-class MapDataSaver : public rclcpp::Node
+class MapDataSaver
 {
 public:
     /// @brief Constructor
-    MapDataSaver();
+    MapDataSaver(ros::NodeHandle& nh);
 
 private:
     /// @brief The mapping callback
     /// @param pointcloud_msg The point cloud message
     /// @param gps_msg The GPS message
     /// @param odom_msg The odometry message
-    void mappingCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& pointcloud_msg,
-                  const sensor_msgs::msg::NavSatFix::ConstSharedPtr& gps_msg,
-                  const nav_msgs::msg::Odometry::ConstSharedPtr& odom_msg);
+    void mappingCallback(const sensor_msgs::PointCloud2::ConstPtr& pointcloud_msg,
+                  const sensor_msgs::NavSatFix::ConstPtr& gps_msg,
+                  const nav_msgs::Odometry::ConstPtr& odom_msg);
 
     /// @brief Callback to run at node kill
     void onShutdown();
 
     /// @brief The synchronization policy
     using SyncPolicy = message_filters::sync_policies::ApproximateTime<
-        sensor_msgs::msg::PointCloud2,
-        sensor_msgs::msg::NavSatFix,
-        nav_msgs::msg::Odometry>;
+        sensor_msgs::PointCloud2,
+        sensor_msgs::NavSatFix,
+        nav_msgs::Odometry>;
 
     /// @brief Subscribers and synchronizer
-    rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr compass_subscription_;
-    std::shared_ptr<message_filters::Subscriber<sensor_msgs::msg::PointCloud2>> pointcloud_sub_;
-    std::shared_ptr<message_filters::Subscriber<sensor_msgs::msg::NavSatFix>> gps_sub_;
-    std::shared_ptr<message_filters::Subscriber<nav_msgs::msg::Odometry>> odom_sub_;  
+    ros::Subscriber compass_subscription_;
+    message_filters::Subscriber<sensor_msgs::PointCloud2> pointcloud_sub_;
+    message_filters::Subscriber<sensor_msgs::NavSatFix> gps_sub_;
+    message_filters::Subscriber<nav_msgs::Odometry> odom_sub_;  
     std::shared_ptr<message_filters::Synchronizer<SyncPolicy>> sync_;
 
     /// @brief Paths
-    std::string folder_save_path_{};
-    std::string odometry_file_path_{};
-    std::string gps_imu_poses_file_path_{};
+    std::string folder_save_path_;
+    std::string odometry_file_path_;
+    std::string gps_imu_poses_file_path_;
 
     ///@brief Point cloud to save the map in tiles
     int cloud_counter_{0};
