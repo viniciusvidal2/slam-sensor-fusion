@@ -1,22 +1,10 @@
 #include "mapping/map_data_save_node.h"
-#include <ros/ros.h>
-#include <std_msgs/Float64.h>
-#include <sensor_msgs/PointCloud2.h>
-#include <sensor_msgs/NavSatFix.h>
-#include <nav_msgs/Odometry.h>
-#include <message_filters/subscriber.h>
-#include <message_filters/time_synchronizer.h>
-#include <message_filters/sync_policies/approximate_time.h>
-#include <pcl_conversions/pcl_conversions.h>
-#include <pcl/io/pcd_io.h>
 
 MapDataSaver::MapDataSaver(ros::NodeHandle& nh) : nh_(nh)
 {
     // Parameters
     nh_.param<std::string>("map_data_path", folder_save_path, std::string(std::getenv("HOME")) + "/Desktop/map_data");
     nh_.param<bool>("enable_debug", debug_, false);
-    folder_save_path_ = this->get_parameter("map_data_path").as_string();
-    debug_ = this->get_parameter("enable_debug").as_bool();
     
     // Create a folder, making sure it does not exist before
     // If it exists, delete it and create it again
@@ -39,7 +27,7 @@ MapDataSaver::MapDataSaver(ros::NodeHandle& nh) : nh_(nh)
     cloud_map_frame_ = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
 
     // Compass subscriber will be used to get the yaw angle
-    compass_subscription_ = nh_.subscribe<std_msgs::msg::Float64>(
+    compass_subscription_ = nh_.subscribe<std_msgs::Float64>(
         "/mavros/global_position/compass_hdg",
         10,
         &MapDataSaver::compassCallback, this);
