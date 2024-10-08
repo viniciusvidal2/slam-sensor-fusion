@@ -1,15 +1,22 @@
 #include "mapping/map_data_save_node.h"
+#include <ros/ros.h>
+#include <std_msgs/Float64.h>
+#include <sensor_msgs/PointCloud2.h>
+#include <sensor_msgs/NavSatFix.h>
+#include <nav_msgs/Odometry.h>
+#include <message_filters/subscriber.h>
+#include <message_filters/time_synchronizer.h>
+#include <message_filters/sync_policies/approximate_time.h>
+#include <pcl_conversions/pcl_conversions.h>
+#include <pcl/io/pcd_io.h>
 
-MapDataSaver::MapDataSaver() : Node("map_data_saver")
+MapDataSaver::MapDataSaver(ros::NodeHandle& nh) : nh_(nh)
 {
     // Parameters
-    this->declare_parameter<std::string>("map_data_path", std::string(std::getenv("HOME")) + "/Desktop/map_data");
-    this->declare_parameter<bool>("enable_debug", false);
+    nh_.param<std::string>("map_data_path", folder_save_path, std::string(std::getenv("HOME")) + "/Desktop/map_data");
+    nh_.param<bool>("enable_debug", debug_, false);
     folder_save_path_ = this->get_parameter("map_data_path").as_string();
     debug_ = this->get_parameter("enable_debug").as_bool();
-
-    // Register the shutdown routine
-    rclcpp::on_shutdown(std::bind(&MapDataSaver::onShutdown, this));
     
     // Create a folder, making sure it does not exist before
     // If it exists, delete it and create it again
@@ -32,34 +39,38 @@ MapDataSaver::MapDataSaver() : Node("map_data_saver")
     cloud_map_frame_ = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
 
     // Compass subscriber will be used to get the yaw angle
-    compass_subscription_ = this->create_subscription<std_msgs::msg::Float64>(
+    compass_subscription_ = nh_.subscribe<std_msgs::msg::Float64>(
         "/mavros/global_position/compass_hdg",
         10,
-        [this](const std_msgs::msg::Float64::SharedPtr msg) {
-            // Invert the yaw based on Ardupilot convention that clockwise is positive
-            current_compass_yaw_ = (90.0 - msg->data) * M_PI / 180.0;
-            // Make sure the yaw is in the range -M_PI to M_PI
-            if (current_compass_yaw_ > M_PI)
-            {
-                current_compass_yaw_ -= 2 * M_PI;
-            }
-            else if (current_compass_yaw_ < -M_PI)
-            {
-                current_compass_yaw_ += 2 * M_PI;
-            }
-        });
+        &MapDataSaver::compassCallback, this);
 
     // Initialize synchronized subscribers
-    pointcloud_sub_ = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::PointCloud2>>(this, "/cloud_registered");
-    gps_sub_ = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::NavSatFix>>(this, "/mavros/global_position/global");
-    odom_sub_ = std::make_shared<message_filters::Subscriber<nav_msgs::msg::Odometry>>(this, "/Odometry");
-    sync_ = std::make_shared<message_filters::Synchronizer<SyncPolicy>>(SyncPolicy(50), *pointcloud_sub_, *gps_sub_, *odom_sub_);
-    sync_->registerCallback(std::bind(&MapDataSaver::mappingCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+    pointcloud_sub_.subscribe(nh_, "/cloud_registered", 10);
+    gps_sub_.subscribe(nh_, "/mavros/global_position/global", 10);
+    odom_sub_.subscribe(nh_, "/Odometry", 10);
+    sync_.reset(new message_filters::Synchronizer<SyncPolicy>(
+        SyncPolicy(50), pointcloud_sub_, gps_sub_, odom_sub_));
+    sync_->registerCallback(boost::bind(&MapDataSaver::mappingCallback, this, _1, _2, _3));
 }
 
-void MapDataSaver::mappingCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& pointcloud_msg,
-                const sensor_msgs::msg::NavSatFix::ConstSharedPtr& gps_msg,
-                const nav_msgs::msg::Odometry::ConstSharedPtr& odom_msg)
+void MapDataSaver::compassCallback(const std_msgs::Float64::ConstPtr& msg)
+{
+    // Invert the yaw based on Ardupilot convention that clockwise is positive
+    current_compass_yaw_ = (90.0 - msg->data) * M_PI / 180.0;
+    // Make sure the yaw is in the range -M_PI to M_PI
+    if (current_compass_yaw_ > M_PI)
+    {
+        current_compass_yaw_ -= 2 * M_PI;
+    }
+    else if (current_compass_yaw_ < -M_PI)
+    {
+        current_compass_yaw_ += 2 * M_PI;
+    }
+}
+
+void MapDataSaver::mappingCallback(const sensor_msgs::PointCloud2::ConstPtr& pointcloud_msg,
+                const sensor_msgs::NavSatFix::ConstPtr& gps_msg,
+                const nav_msgs::Odometry::ConstPtr& odom_msg)
 {
     // Add the point cloud to the map
     pcl::PointCloud<PointT>::Ptr cloud = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
@@ -74,7 +85,7 @@ void MapDataSaver::mappingCallback(const sensor_msgs::msg::PointCloud2::ConstSha
         pcl::io::savePCDFileBinary(cloud_file_path, *cloud_map_frame_);
         if (debug_)
         {
-            RCLCPP_INFO(this->get_logger(), "Saved cloud %d", cloud_counter_);
+            ROS_INFO("Saved cloud %d", cloud_counter_);
         }
         cloud_map_frame_->clear();
     }
@@ -107,7 +118,7 @@ void MapDataSaver::onShutdown()
         pcl::io::savePCDFileBinary(cloud_file_path, *cloud_map_frame_);
         if (debug_)
         {
-            RCLCPP_INFO(this->get_logger(), "Saved cloud %d", cloud_counter_);
+            ROS_INFO("Saved cloud %d", cloud_counter_);
         }
     }
 }
