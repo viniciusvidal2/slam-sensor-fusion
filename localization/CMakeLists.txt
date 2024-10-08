@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.0.2)
 project(localization)
 
 # Enable C++17
@@ -10,48 +10,55 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-# find dependencies
-find_package(ament_cmake REQUIRED)
-find_package(rclcpp REQUIRED)
-find_package(rclcpp_components REQUIRED)
-find_package(geometry_msgs REQUIRED)
-find_package(sensor_msgs REQUIRED)
-find_package(std_msgs REQUIRED)
-find_package(nav_msgs REQUIRED)
-find_package(pcl_ros REQUIRED)
-find_package(pcl_conversions REQUIRED)
-find_package(message_filters REQUIRED)
+# Find catkin macros and libraries
+find_package(catkin REQUIRED COMPONENTS
+  roscpp
+  geometry_msgs
+  sensor_msgs
+  std_msgs
+  nav_msgs
+  pcl_ros
+  pcl_conversions
+  message_filters
+)
 
 # find PCL
 find_package(PCL REQUIRED)
 
-include_directories(include)
+# Declare a catkin package
+catkin_package(
+  INCLUDE_DIRS include
+  LIBRARIES localization
+  CATKIN_DEPENDS roscpp geometry_msgs sensor_msgs std_msgs nav_msgs pcl_ros pcl_conversions message_filters
+  DEPENDS PCL
+)
 
+include_directories(
+  include
+  ${catkin_INCLUDE_DIRS}
+  ${PCL_INCLUDE_DIRS}
+)
+
+# Declare the executable target
 add_executable(localization_node src/main.cpp 
               src/localization_node.cpp
               src/global_map_frames_manager.cpp
               src/icp_point_to_point.cpp
               src/stochastic_filter.cpp
-              src/brute_force_alignment.cpp)
-              
-ament_target_dependencies(localization_node rclcpp 
-rclcpp_components 
-geometry_msgs 
-sensor_msgs 
-std_msgs
-nav_msgs 
-pcl_ros 
-pcl_conversions 
-message_filters
+              src/brute_force_alignment.cpp)              
+
+# Link the executable with the required libraries
+target_link_libraries(localization_node
+  ${catkin_LIBRARIES}
+  ${PCL_LIBRARIES}
 )
 
-install(TARGETS
-  localization_node
-  DESTINATION lib/${PROJECT_NAME}
+# Install the executable
+install(TARGETS localization_node
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
+# Install launch files
 install(DIRECTORY launch/
-  DESTINATION share/${PROJECT_NAME}/launch
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/launch
 )
-
-ament_package()
