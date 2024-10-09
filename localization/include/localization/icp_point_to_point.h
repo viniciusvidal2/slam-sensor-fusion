@@ -25,6 +25,19 @@
 
 using PointT = pcl::PointXYZ;
 
+struct ICPResult
+{
+    ICPResult(Eigen::Matrix4f T, float error, int iterations, bool has_converged)
+        : transformation(T), error(error), iterations(iterations), has_converged(has_converged) {}
+    ICPResult(Eigen::Matrix4f T): transformation(T) {}
+    ICPResult() {}
+
+    Eigen::Matrix4f transformation = Eigen::Matrix4f::Identity();
+    float error{1e6};
+    int iterations{0};
+    bool has_converged{false};
+};
+
 class ICPPointToPoint
 {
 public:
@@ -66,9 +79,9 @@ public:
     /// @brief Set the debug mode flag
     void setDebugMode(bool debug_mode);
 
-    /// @brief Calculate the best transformation to align the source cloud to the target cloud
-    /// @return The best transformation matrix
-    Eigen::Matrix4f calculateAlignmentTransformation();
+    /// @brief Calculate the best transformation to align the source cloud to the target cloud, plus ICP algorithm info
+    /// @return The ICP alginment result
+    ICPResult calculateAlignment();
 
 private:
     /// @brief Converts the PCL to Eigen format

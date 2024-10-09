@@ -182,8 +182,11 @@ inline void ICPPointToPoint::printStepDebug(const int i, const float error) cons
     }
 }
 
-Eigen::Matrix4f ICPPointToPoint::calculateAlignmentTransformation()
+ICPResult ICPPointToPoint::calculateAlignment()
 {
+    // The output result struct
+    ICPResult icp_result(initial_transform_);
+    
     // Apply transformation to the source cloud
     Eigen::MatrixX3f transformed_source_cloud(source_cloud_);
     applyTransformation(initial_transform_, transformed_source_cloud);
@@ -193,7 +196,7 @@ Eigen::Matrix4f ICPPointToPoint::calculateAlignmentTransformation()
     if (transformed_source_cloud.rows() < 10)
     {
         std::cerr << "[ICP ERROR] Not enough valid correspondences found. Aborting." << std::endl;
-        return initial_transform_;
+        return icp_result;
     }
 
     // Iterate the algorithm
@@ -211,6 +214,7 @@ Eigen::Matrix4f ICPPointToPoint::calculateAlignmentTransformation()
         // Check if we reached the acceptable error
         if (error < acceptable_mean_error_)
         {
+            last_error_ = error;
             break;
         }
         // If transformation is already very minimal, look for the correspondences again
@@ -241,5 +245,10 @@ Eigen::Matrix4f ICPPointToPoint::calculateAlignmentTransformation()
         std::cout << "[ICP INFO] Final transformation matrix: " << std::endl << source_T_target << std::endl;
     }
 
-    return source_T_target;
+    // Fill result struct with data and return
+    icp_result.transformation = source_T_target;
+    icp_result.error = last_error_;
+    icp_result.iterations = iterations_taken;
+    icp_result.has_converged = last_error_ < acceptable_mean_error_;
+    return icp_result;
 }
