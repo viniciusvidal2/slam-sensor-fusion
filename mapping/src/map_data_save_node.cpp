@@ -1,17 +1,20 @@
 #include "mapping/map_data_save_node.h"
 
-MapDataSaver::MapDataSaver(ros::NodeHandle& nh) : nh_(nh)
+MapDataSaver::MapDataSaver(ros::NodeHandle& nh)
 {
     // Parameters
-    nh_.param<std::string>("map_data_path", folder_save_path, std::string(std::getenv("HOME")) + "/Desktop/map_data");
-    nh_.param<bool>("enable_debug", debug_, false);
+    nh.getParam("map_data_path", folder_save_path_);
+    nh.getParam("enable_debug", debug_);
     
     // Create a folder, making sure it does not exist before
     // If it exists, delete it and create it again
     if (FileManipulation::directoryExists(folder_save_path_))
     {
         std::string command = "rm -rf " + folder_save_path_;
-        system(command.c_str());
+        if(!system(command.c_str()))
+        {
+            ROS_WARN("Reseting folder %s to store new mapping data!", folder_save_path_.c_str());
+        }
     }
     FileManipulation::createDirectory(folder_save_path_);
 
@@ -27,15 +30,15 @@ MapDataSaver::MapDataSaver(ros::NodeHandle& nh) : nh_(nh)
     cloud_map_frame_ = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
 
     // Compass subscriber will be used to get the yaw angle
-    compass_subscription_ = nh_.subscribe<std_msgs::Float64>(
+    compass_subscription_ = nh.subscribe<std_msgs::Float64>(
         "/mavros/global_position/compass_hdg",
         10,
         &MapDataSaver::compassCallback, this);
 
     // Initialize synchronized subscribers
-    pointcloud_sub_.subscribe(nh_, "/cloud_registered", 10);
-    gps_sub_.subscribe(nh_, "/mavros/global_position/global", 10);
-    odom_sub_.subscribe(nh_, "/Odometry", 10);
+    pointcloud_sub_.subscribe(nh, "/cloud_registered", 10);
+    gps_sub_.subscribe(nh, "/mavros/global_position/global", 10);
+    odom_sub_.subscribe(nh, "/Odometry", 10);
     sync_.reset(new message_filters::Synchronizer<SyncPolicy>(
         SyncPolicy(50), pointcloud_sub_, gps_sub_, odom_sub_));
     sync_->registerCallback(boost::bind(&MapDataSaver::mappingCallback, this, _1, _2, _3));

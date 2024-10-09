@@ -51,6 +51,10 @@ private:
     /// @brief Callback to run at node kill
     void onShutdown();
 
+    /// @brief Callback to get the yaw angle from compass
+    /// @param msg The compass message
+    void compassCallback(const std_msgs::Float64::ConstPtr& msg);
+
     /// @brief The synchronization policy
     using SyncPolicy = message_filters::sync_policies::ApproximateTime<
         sensor_msgs::PointCloud2,
@@ -65,7 +69,7 @@ private:
     std::shared_ptr<message_filters::Synchronizer<SyncPolicy>> sync_;
 
     /// @brief Paths
-    std::string folder_save_path_;
+    std::string folder_save_path_{std::string(std::getenv("HOME")) + "/Desktop/map_data"};
     std::string odometry_file_path_;
     std::string gps_imu_poses_file_path_;
 

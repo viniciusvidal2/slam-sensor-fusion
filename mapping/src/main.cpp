@@ -13,7 +13,7 @@
 int main(int argc, char * argv[])
 {
     ros::init(argc, argv, "map_data_save_node");
-    ros::NodeHandle nh;
+    ros::NodeHandle nh("~");
     std::shared_ptr<MapDataSaver> node = std::make_shared<MapDataSaver>(nh);
     ros::spin();
     ros::shutdown();
