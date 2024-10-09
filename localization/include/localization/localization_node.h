@@ -63,7 +63,7 @@ private:
     /// @brief Compute the coarse pose from GPS and compass in the map frame
     /// @param gps_msg The GPS message
     /// @return The transformation matrix from the map to the sensor frame using gps and compass
-    const Eigen::Matrix4f computeGpsCoarsePoseInMapFrame(const sensor_msgs::msg::NavSatFix::ConstSharedPtr& gps_msg) const;
+    const Eigen::Matrix4f computeGpsCoarsePoseInMapFrame(const sensor_msgs::NavSatFix::ConstPtr& gps_msg) const;
 
     /// @brief Build a nav_msgs::Odometry message from a transformation matrix
     /// @param T The transformation matrix
@@ -74,7 +74,7 @@ private:
     inline nav_msgs::Odometry buildNavOdomMsg(const Eigen::Matrix4f& T, 
                                                    const std::string& frame_id, 
                                                    const std::string& child_frame_id, 
-                                                   const rclcpp::Time& stamp) const;
+                                                   const ros::Time& stamp) const;
 
     /// @brief Compute the pose weights from the covariance matrices
     /// @param gps_msg The GPS message
@@ -89,8 +89,8 @@ private:
     /// @brief Initialize the poses with the first reading
     /// @param gps_msg The GPS message
     /// @param odom_msg The odometry message
-    void initializePosesWithFirstReading(const sensor_msgs::msg::NavSatFix::ConstSharedPtr& gps_msg,
-                                        const nav_msgs::msg::Odometry::ConstSharedPtr& odom_msg);
+    void initializePosesWithFirstReading(const sensor_msgs::NavSatFix::ConstPtr& gps_msg,
+                                        const nav_msgs::Odometry::ConstPtr& odom_msg);
 
     /// @brief Perform the coarse alignment between the scan and the map
     /// @param scan_cloud The scan point cloud
