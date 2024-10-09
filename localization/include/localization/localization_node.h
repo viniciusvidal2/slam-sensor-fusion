@@ -47,11 +47,10 @@ class LocalizationNode
 {
 public:
     /// @brief Constructor
-    LocalizationNode();
+    LocalizationNode(ros::NodeHandle nh);
 
 private:
 
-    ros::NodeHandle nh_; // NodeHandle for ROS 1
     /// @brief Compute the pose prediction from the odometry message
     /// @param odom_msg The odometry message
     /// @param odom_T_sensor_current The transformation matrix for the sensor in odometry frame
