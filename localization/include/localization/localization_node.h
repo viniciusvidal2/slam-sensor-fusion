@@ -1,5 +1,6 @@
 #ifndef LOCALIZATION_NODE_H
 #define LOCALIZATION_NODE_H
+
 #include <iostream>
 #include <iomanip>
 #include <fstream>
@@ -20,14 +21,14 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/crop_box.h>
 #include <pcl/filters/extract_indices.h>
-#include <rclcpp/rclcpp.hpp>
-#include <sensor_msgs/msg/point_cloud2.hpp>
-#include <sensor_msgs/msg/nav_sat_fix.hpp>
-#include <nav_msgs/msg/odometry.hpp>
-#include <std_msgs/msg/float64.hpp>
+#include <ros/ros.h>
+#include <sensor_msgs/PointCloud2.h>
+#include <sensor_msgs/NavSatFix.h>
+#include <nav_msgs/Odometry.h>
+#include <std_msgs/Float64.h>
 #include <message_filters/subscriber.h>
+#include <message_filters/time_synchronizer.h>
 #include <message_filters/sync_policies/approximate_time.h>
-#include <message_filters/synchronizer.h>
 
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
@@ -42,18 +43,20 @@
 
 using PointT = pcl::PointXYZ;
 
-class LocalizationNode : public rclcpp::Node
+class LocalizationNode
 {
 public:
     /// @brief Constructor
     LocalizationNode();
 
 private:
+
+    ros::NodeHandle nh_; // NodeHandle for ROS 1
     /// @brief Compute the pose prediction from the odometry message
     /// @param odom_msg The odometry message
     /// @param odom_T_sensor_current The transformation matrix for the sensor in odometry frame
     /// @param map_T_sensor_current_odom The transformation matrix for the sensor in map frame based on odometry
-    inline void computePosePredictionFromOdometry(const nav_msgs::msg::Odometry::ConstSharedPtr& odom_msg,
+    inline void computePosePredictionFromOdometry(const nav_msgs::Odometry::ConstPtr& odom_msg,
                                            Eigen::Matrix4f& odom_T_sensor_current,
                                            Eigen::Matrix4f& map_T_sensor_current_odom) const;
 
@@ -68,7 +71,7 @@ private:
     /// @param child_frame_id The child frame id
     /// @param stamp The timestamp
     /// @return The nav_msgs::Odometry message
-    inline nav_msgs::msg::Odometry buildNavOdomMsg(const Eigen::Matrix4f& T, 
+    inline nav_msgs::Odometry buildNavOdomMsg(const Eigen::Matrix4f& T, 
                                                    const std::string& frame_id, 
                                                    const std::string& child_frame_id, 
                                                    const rclcpp::Time& stamp) const;
@@ -79,8 +82,8 @@ private:
     /// @param odom_gain The odometry gain
     /// @param gps_gain The GPS gain
     /// @param fixed True if the GPS and ODOM covariances should be fixed
-    void computePoseGainsFromCovarianceMatrices(const sensor_msgs::msg::NavSatFix::ConstSharedPtr& gps_msg,
-                                                const nav_msgs::msg::Odometry::ConstSharedPtr& odom_msg,
+    void computePoseGainsFromCovarianceMatrices(const sensor_msgs::NavSatFix::ConstPtr& gps_msg,
+                                                const nav_msgs::Odometry::ConstPtr& odom_msg,
                                                 float& odom_gain, float& gps_gain, const bool fixed) const;
 
     /// @brief Initialize the poses with the first reading
@@ -100,30 +103,30 @@ private:
     /// @param pointcloud_msg The incoming point cloud message
     /// @param gps_msg The incoming GPS message
     /// @param odom_msg The incoming odometry message
-    void localizationCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& pointcloud_msg,
-                              const sensor_msgs::msg::NavSatFix::ConstSharedPtr& gps_msg,
-                              const nav_msgs::msg::Odometry::ConstSharedPtr& odom_msg);
+    void localizationCallback(const sensor_msgs::PointCloud2::ConstPtr& pointcloud_msg,
+                              const sensor_msgs::NavSatFix::ConstPtr& gps_msg,
+                              const nav_msgs::Odometry::ConstPtr& odom_msg);
     
     /// @brief Synchronizer policy
     using SyncPolicy = message_filters::sync_policies::ApproximateTime<
-        sensor_msgs::msg::PointCloud2,
-        sensor_msgs::msg::NavSatFix,
-        nav_msgs::msg::Odometry>;
+        sensor_msgs::PointCloud2,
+        sensor_msgs::NavSatFix,
+        nav_msgs::Odometry>;
 
     /// @brief Subscribers and synchronizer
-    rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr compass_subscription_;
-    std::shared_ptr<message_filters::Subscriber<sensor_msgs::msg::PointCloud2>> pointcloud_sub_;
-    std::shared_ptr<message_filters::Subscriber<sensor_msgs::msg::NavSatFix>> gps_sub_;
-    std::shared_ptr<message_filters::Subscriber<nav_msgs::msg::Odometry>> odom_sub_;  
+    ros::Subscriber compass_subscription_;
+    std::shared_ptr<message_filters::Subscriber<sensor_msgs::PointCloud2>> pointcloud_sub_;
+    std::shared_ptr<message_filters::Subscriber<sensor_msgs::NavSatFix>> gps_sub_;
+    std::shared_ptr<message_filters::Subscriber<nav_msgs::Odometry>> odom_sub_;  
     std::shared_ptr<message_filters::Synchronizer<SyncPolicy>> sync_;
 
     /// @brief Publishers
-    rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr map_T_sensor_pub_;
-    rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr map_T_sensor_prior_pub_;
-    rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_T_sensor_pub_;
-    rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr map_T_sensor_gps_pub_;
-    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cropped_scan_pub_;
-    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr map_pub_;
+    ros::Publisher map_T_sensor_pub_;
+    ros::Publisher map_T_sensor_prior_pub_;
+    ros::Publisher odom_T_sensor_pub_;
+    ros::Publisher map_T_sensor_gps_pub_;
+    ros::Publisher cropped_scan_pub_;
+    ros::Publisher map_pub_;
 
     /// @brief Yaw angle from compass
     float current_compass_yaw_{0.0f}; // -M_PI to M_PI [RAD]
