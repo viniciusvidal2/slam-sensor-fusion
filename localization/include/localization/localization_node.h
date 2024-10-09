@@ -159,6 +159,10 @@ private:
     /// @brief Initial alignment with brute force matcher
     std::shared_ptr<BruteForceAlignment> brute_force_alignment_;
 
+    std::string folder_save_path_{std::string(std::getenv("HOME")) + "/Desktop/map_data"};
+    std::string map_name_{"map"};
+    double max_map_optimization_poses_{50.0};
+
     /// @brief Debug flag
     bool debug_{false};
 
