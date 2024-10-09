@@ -7,15 +7,16 @@
 #include <functional>
 #include <signal.h>
 
-#include <rclcpp/rclcpp.hpp>
+#include <ros/ros.h>
 
 #include "localization/localization_node.h"
 
 int main(int argc, char * argv[])
 {
-    rclcpp::init(argc, argv);
-    auto node = std::make_shared<LocalizationNode>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
+    ros::init(argc, argv, "localization_node");
+    ros::NodeHandle nh("~")
+    std::shared_ptr<LocalizationNode> node = std::make_shared<LocalizationNode>(nh);
+    ros::spin();
+    ros::shutdown();
     return 0;
 }
