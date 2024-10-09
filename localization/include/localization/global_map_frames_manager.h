@@ -20,7 +20,7 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/crop_box.h>
 #include <pcl/filters/extract_indices.h>
-#include <rclcpp/rclcpp.hpp>
+#include <ros/ros.h>
 
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
