@@ -17,7 +17,7 @@
 #include <pcl/conversions.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl/kdtree/kdtree_flann.h>
-#include <rclcpp/rclcpp.hpp>
+#include <ros/ros.h>
 
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
