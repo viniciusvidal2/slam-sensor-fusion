@@ -55,7 +55,7 @@ LocalizationNode::LocalizationNode(ros::NodeHandle nh)
         10, &LocalizationNode::compassCallback, this);
 
     // Initialize synchronized subscribers
-    pointcloud_sub_.subscribe(nh, "/cloud_registered", 3);
+    pointcloud_sub_.subscribe(nh, "/cloud_registered_body", 3);
     gps_sub_.subscribe(nh, "/mavros/global_position/global", 3);
     odom_sub_.subscribe(nh, "/Odometry", 3);
     sync_.reset(new message_filters::Synchronizer<SyncPolicy>(
@@ -321,7 +321,7 @@ void LocalizationNode::localizationCallback(const sensor_msgs::PointCloud2::Cons
     // Obtain the weighted coarse pose from GPS and Odometry fusion based on covariance
     float gps_compass_gain, odometry_gain;
     computePoseGainsFromCovarianceMatrices(gps_msg, odom_msg, odometry_gain, gps_compass_gain, false);
-    const Eigen::Matrix4f map_T_sensor_prior = odometry_gain*map_T_sensor_odom + gps_compass_gain*map_T_sensor_gps;
+    Eigen::Matrix4f map_T_sensor_prior = odometry_gain*map_T_sensor_odom + gps_compass_gain*map_T_sensor_gps;
     // // Filter out the coarse pose to avoid sudden changes
     // coarse_pose_filter_->addPoseToQueue(map_T_sensor_prior);
     // map_T_sensor_prior = coarse_pose_filter_->applyGaussianFilterToCurrentPose(map_T_sensor_, map_T_sensor_prior);
@@ -330,11 +330,10 @@ void LocalizationNode::localizationCallback(const sensor_msgs::PointCloud2::Cons
     icp_->setSourcePointCloud(cropped_scan_cloud);
     icp_->setInitialTransformation(map_T_sensor_prior);
     const auto icp_result = icp_->calculateAlignment();
-    // // Filter out the fine pose to avoid sudden changes
+    // Filter out the fine pose to avoid sudden changes
     // fine_pose_filter_->addPoseToQueue(map_T_sensor_prior);
-    // map_T_sensor_ = coarse_pose_filter_->applyGaussianFilterToCurrentPose(map_T_sensor_, icp_result.transformation);
+    // map_T_sensor_ = fine_pose_filter_->applyGaussianFilterToCurrentPose(map_T_sensor_, icp_result.transformation);
     map_T_sensor_ = icp_result.transformation;
-    map_T_sensor_ = map_T_sensor_prior;
 
     // Update the transformation in odom frame
     odom_T_sensor_previous_ = odom_T_sensor_current;
