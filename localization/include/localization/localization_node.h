@@ -19,8 +19,9 @@
 #include <pcl/common/transforms.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/filters/voxel_grid.h>
-#include <pcl/filters/crop_box.h>
 #include <pcl/filters/extract_indices.h>
+#include <pcl/registration/ndt.h>
+#include <pcl/features/normal_3d.h>
 #include <ros/ros.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <sensor_msgs/NavSatFix.h>
@@ -38,7 +39,6 @@
 #include "localization/global_map_frames_manager.h"
 #include "localization/icp_point_to_point.h"
 #include "localization/stochastic_filter.h"
-#include "localization/brute_force_alignment.h"
 #include "localization/point_cloud_processing.hpp"
 
 using PointT = pcl::PointXYZ;
@@ -126,7 +126,7 @@ private:
     /// @brief Publishers
     ros::Publisher map_T_sensor_pub_;
     ros::Publisher map_T_sensor_prior_pub_;
-    ros::Publisher odom_T_sensor_pub_;
+    ros::Publisher map_T_sensor_odom_pub_;
     ros::Publisher map_T_sensor_gps_pub_;
     ros::Publisher cropped_scan_pub_;
     ros::Publisher map_pub_;
@@ -139,6 +139,7 @@ private:
     Eigen::Matrix4d map_T_global_;
     Eigen::Matrix4f odom_T_sensor_previous_;
     Eigen::Matrix4f map_T_ref_;
+    Eigen::Matrix4f map_T_odom_;
 
     /// @brief Map point cloud variables
     pcl::PointCloud<PointT>::Ptr map_cloud_;
@@ -159,9 +160,6 @@ private:
     /// @brief Stochastic filter objects
     std::shared_ptr<StochasticFilter> coarse_pose_filter_;
     std::shared_ptr<StochasticFilter> fine_pose_filter_;
-
-    /// @brief Initial alignment with brute force matcher
-    std::shared_ptr<BruteForceAlignment> brute_force_alignment_;
 
     std::string folder_save_path_{std::string(std::getenv("HOME")) + "/Desktop/map_data"};
     std::string map_name_{"map"};

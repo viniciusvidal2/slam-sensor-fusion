@@ -20,7 +20,7 @@ LocalizationNode::LocalizationNode(ros::NodeHandle nh)
 
     // Init the ICP object to compute Point to Point alignment
     const int num_iterations = 10;
-    const float transformation_epsilon = 1e-5f;
+    const float transformation_epsilon = 1e-8f;
     const float max_correspondence_dist = 0.5f; // [m]
     const float mean_accepted_error = 0.05f; // [m]
     icp_ = std::make_shared<ICPPointToPoint>(max_correspondence_dist, num_iterations, mean_accepted_error, transformation_epsilon);
@@ -32,18 +32,11 @@ LocalizationNode::LocalizationNode(ros::NodeHandle nh)
     coarse_pose_filter_ = std::make_shared<StochasticFilter>(filter_queue_size, z_score_threshold);
     fine_pose_filter_ = std::make_shared<StochasticFilter>(filter_queue_size, z_score_threshold);
 
-    // Brute force alignment object to get the initial alignment
-    brute_force_alignment_ = std::make_shared<BruteForceAlignment>();
-    brute_force_alignment_->setMeanErrorThreshold(0.1f);
-    brute_force_alignment_->setXYZStep(0.1f, 0.1f, 0.05f);
-    brute_force_alignment_->setXYZRange(1.5f, 1.5f, 0.1f);
-    brute_force_alignment_->setRotationStep(M_PI/18.0f);
-    brute_force_alignment_->setRotationRange(M_PI/6.0f);
-
     // Reference transforms
     map_T_sensor_ = Eigen::Matrix4f::Identity();
     odom_T_sensor_previous_ = Eigen::Matrix4f::Identity();
     map_T_ref_ = Eigen::Matrix4f::Identity();
+    map_T_odom_ = Eigen::Matrix4f::Identity();
 
     // Init the cropped map in the ref frame
     ref_cropped_map_cloud_ = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
@@ -51,7 +44,7 @@ LocalizationNode::LocalizationNode(ros::NodeHandle nh)
     // Create the publishers for the odometry and the point cloud
     map_T_sensor_pub_ = nh.advertise<nav_msgs::Odometry>("/localization/map_T_sensor", 10);
     map_T_sensor_prior_pub_ = nh.advertise<nav_msgs::Odometry>("/localization/map_T_sensor_prior", 10);
-    odom_T_sensor_pub_ = nh.advertise<nav_msgs::Odometry>("/localization/odom_T_sensor", 10);
+    map_T_sensor_odom_pub_ = nh.advertise<nav_msgs::Odometry>("/localization/map_T_sensor_odom", 10);
     map_T_sensor_gps_pub_ = nh.advertise<nav_msgs::Odometry>("/localization/map_T_sensor_gps", 10);
     cropped_scan_pub_ = nh.advertise<sensor_msgs::PointCloud2>("/localization/cropped_scan_map_frame", 10);
     map_pub_ = nh.advertise<sensor_msgs::PointCloud2>("/localization/map", 10);
@@ -202,63 +195,64 @@ bool LocalizationNode::performCoarseAlignment(const pcl::PointCloud<PointT>::Ptr
                                               const pcl::PointCloud<PointT>::Ptr& map_cloud)
 {
     // Perform first alignment if not aligned yet to the start of the trip in map frame
-    if (!brute_force_alignment_->firstAlignmentCompleted())
-    {
-        // Reduce resolution so brute force can run faster
-        pcl::PointCloud<PointT>::Ptr map_cloud_temp = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
-        *map_cloud_temp = *map_cloud;
-        pcl::PointCloud<PointT>::Ptr scan_cloud_temp = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
-        *scan_cloud_temp = *scan_cloud;
-        applyUniformSubsample(map_cloud_temp, 15);
-        removeFloor(map_cloud_temp);
-        removeFloor(scan_cloud_temp);
+    pcl::PointCloud<PointT>::Ptr map_cloud_temp = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
+    *map_cloud_temp = *map_cloud;
+    pcl::PointCloud<PointT>::Ptr scan_cloud_temp = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
+    *scan_cloud_temp = *scan_cloud;
+    removeFloor(map_cloud_temp);
+    removeFloor(scan_cloud_temp);
 
-        // Apply the brute force alignment to the cropped scan and the cropped map
-        brute_force_alignment_->setInitialGuess(map_T_sensor_);
-        brute_force_alignment_->setSourceCloud(scan_cloud_temp);
-        brute_force_alignment_->setTargetCloud(map_cloud_temp);
-        if (!brute_force_alignment_->alignClouds())
+    // First NDT registration
+    pcl::NormalDistributionsTransform<PointT, PointT> ndt;
+    ndt.setMaximumIterations(50);
+    ndt.setResolution(1.0);
+    ndt.setTransformationEpsilon(0.01);
+    ndt.setStepSize(0.1);
+    ndt.setInputSource(scan_cloud_temp);
+    ndt.setInputTarget(map_cloud_temp);
+    pcl::PointCloud<PointT> output;
+    ndt.align(output, map_T_sensor_);
+    map_T_sensor_ = ndt.getFinalTransformation();
+
+    // Create sequences to try ICP
+    std::vector<float> max_corresp_distances = {5.0f, 4.0f, 3.0f, 2.0f, 1.0f, 0.5f};
+    std::vector<float> acceptable_mean_errors = {0.3f, 0.2f};
+    // Apply a heavy ICP to get the initial alignment
+    ROS_WARN("Running brute force with ICP.");
+    float best_error = 1e6;
+    for (const auto& max_corresp_dist : max_corresp_distances)
+    {
+        for (const auto& acceptable_mean_error : acceptable_mean_errors)
         {
-            // If the brute force was not successfull enough, lets run some strong ICP to align
-            ROS_WARN("Brute force alignment not successfull, will try ICP.");
-            icp_->setTargetPointCloud(map_cloud_temp);
+            icp_->setMaxCorrespondenceDist(max_corresp_dist);
+            icp_->setAcceptableMeanError(acceptable_mean_error);
             icp_->setSourcePointCloud(scan_cloud_temp);
-            icp_->setInitialTransformation(brute_force_alignment_->getBestTransformation());
-            icp_->setMaxCorrespondenceDist(5.0f);
-            icp_->setTransformationEpsilon(1e-2f);
-            icp_->setAcceptableMeanError(0.4f);
-            icp_->setNumIterations(80);
+            icp_->setTargetPointCloud(map_cloud_temp);
+            icp_->setInitialTransformation(map_T_sensor_);
             const auto icp_result = icp_->calculateAlignment();
+            if (icp_result.error < best_error)
+            {
+                best_error = icp_result.error;
+                map_T_sensor_ = icp_result.transformation;
+            }
             if (icp_result.has_converged)
             {
-                icp_->setMaxCorrespondenceDist(0.5f);
-                icp_->setTransformationEpsilon(1e-5f);
+                ROS_WARN("ICP alignment successfull with max_corresp_dist: %f and acceptable_mean_error: %f", 
+                        max_corresp_dist, acceptable_mean_error);
+                icp_->setMaxCorrespondenceDist(0.4f);
+                icp_->setTransformationEpsilon(1e-6f);
                 icp_->setAcceptableMeanError(0.05f);
-                icp_->setNumIterations(10);
-                brute_force_alignment_->resetFirstAlignment(true);
-                coarse_alignment_complete_ = true;
+                icp_->setNumIterations(16);
                 map_T_sensor_ = icp_result.transformation;
+                map_T_odom_ = map_T_sensor_;
+                coarse_alignment_complete_ = true;
                 return true;
             }
-            else
-            {
-                ROS_WARN("ICP alignment not successfull, will try again next time.");
-                brute_force_alignment_->resetFirstAlignment(false);
-                return false;
-            }
-        }
-        else
-        {
-            ROS_INFO("First alignment completed, proceeding to fine alignment.");
-            coarse_alignment_complete_ = true;
-            map_T_sensor_ = brute_force_alignment_->getBestTransformation();
-            return true;
         }
     }
-    else
-    {
-        return true;
-    }
+
+    ROS_WARN("ICP alignment not successfull, will try again next time.");
+    return false;
 }
 
 void LocalizationNode::localizationCallback(const sensor_msgs::PointCloud2::ConstPtr& pointcloud_msg,
@@ -311,7 +305,7 @@ void LocalizationNode::localizationCallback(const sensor_msgs::PointCloud2::Cons
     {
         if (!performCoarseAlignment(cropped_scan_cloud, ref_cropped_map_cloud_))
         {
-            return;
+            ROS_WARN("Coarse alignment not successfull, localization pose might not be precise.");
         }
     }
     
@@ -327,16 +321,20 @@ void LocalizationNode::localizationCallback(const sensor_msgs::PointCloud2::Cons
     // Obtain the weighted coarse pose from GPS and Odometry fusion based on covariance
     float gps_compass_gain, odometry_gain;
     computePoseGainsFromCovarianceMatrices(gps_msg, odom_msg, odometry_gain, gps_compass_gain, false);
-    Eigen::Matrix4f map_T_sensor_prior = odometry_gain*map_T_sensor_odom + gps_compass_gain*map_T_sensor_gps;
-    // Filter out the coarse pose to avoid sudden changes
-    coarse_pose_filter_->addPoseToQueue(map_T_sensor_prior);
-    map_T_sensor_prior = coarse_pose_filter_->applyGaussianFilterToCurrentPose(map_T_sensor_, map_T_sensor_prior);
+    const Eigen::Matrix4f map_T_sensor_prior = odometry_gain*map_T_sensor_odom + gps_compass_gain*map_T_sensor_gps;
+    // // Filter out the coarse pose to avoid sudden changes
+    // coarse_pose_filter_->addPoseToQueue(map_T_sensor_prior);
+    // map_T_sensor_prior = coarse_pose_filter_->applyGaussianFilterToCurrentPose(map_T_sensor_, map_T_sensor_prior);
     
     // Align the point clouds with ICP to obtain the relative transformation
     icp_->setSourcePointCloud(cropped_scan_cloud);
     icp_->setInitialTransformation(map_T_sensor_prior);
     const auto icp_result = icp_->calculateAlignment();
+    // // Filter out the fine pose to avoid sudden changes
+    // fine_pose_filter_->addPoseToQueue(map_T_sensor_prior);
+    // map_T_sensor_ = coarse_pose_filter_->applyGaussianFilterToCurrentPose(map_T_sensor_, icp_result.transformation);
     map_T_sensor_ = icp_result.transformation;
+    map_T_sensor_ = map_T_sensor_prior;
 
     // Update the transformation in odom frame
     odom_T_sensor_previous_ = odom_T_sensor_current;
@@ -353,9 +351,10 @@ void LocalizationNode::localizationCallback(const sensor_msgs::PointCloud2::Cons
         std::chrono::duration<double> elapsed = end - start;
         ROS_INFO("CALLBACK TOOK %f seconds", elapsed.count());
         // Publish debug poses
-        map_T_sensor_prior_pub_.publish(buildNavOdomMsg(map_T_sensor_prior, "map", "sensor", odom_msg->header.stamp));
-        odom_T_sensor_pub_.publish(buildNavOdomMsg(odom_T_sensor_current, "map", "sensor", odom_msg->header.stamp));
+        map_T_sensor_odom = map_T_odom_ * odom_T_sensor_current;
+        map_T_sensor_odom_pub_.publish(buildNavOdomMsg(map_T_sensor_odom, "map", "sensor", odom_msg->header.stamp));
         map_T_sensor_gps_pub_.publish(buildNavOdomMsg(map_T_sensor_gps, "map", "sensor", odom_msg->header.stamp));
+        map_T_sensor_prior_pub_.publish(buildNavOdomMsg(map_T_sensor_prior, "map", "sensor", odom_msg->header.stamp));
         // Publish the cropped scan
         pcl::transformPointCloud(*cropped_scan_cloud, *cropped_scan_cloud, map_T_sensor_);
         cropped_scan_cloud->header.frame_id = "map";
