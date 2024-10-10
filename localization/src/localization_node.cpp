@@ -1,20 +1,18 @@
 #include "localization/localization_node.h"
 
-LocalizationNode::LocalizationNode() : Node("localization_node")
+LocalizationNode::LocalizationNode(ros::NodeHandle& nh)
 {
     // Parameters
-    this->declare_parameter<bool>("enable_debug", false);
-    this->declare_parameter<std::string>("map_data_path", std::string(std::getenv("HOME")) + "/Desktop/map_data");
-    this->declare_parameter<std::string>("map_name", "map");
-    this->declare_parameter<double>("max_map_optimization_poses", 50.0);
-
-    // Set debug
-    debug_ = this->get_parameter("enable_debug").as_bool();
+    nh.getParam("enable_debug", debug_);
+    nh.getParam("map_data_path", folder_save_path_);
+    nh.getParam("map_name", map_name_);
+    nh.getParam("max_map_optimization_poses", max_map_optimization_poses_);
 
     // Init the map point cloud and transformation with the frames manager
-    std::string map_data_path = this->get_parameter("map_data_path").as_string();
-    std::string map_name = this->get_parameter("map_name").as_string();
-    int maximum_number_of_poses_to_optimize_map_T_global = static_cast<int>(this->get_parameter("max_map_optimization_poses").as_double());
+    std::string map_data_path = folder_save_path_;
+    std::string map_name = map_name_;
+    int maximum_number_of_poses_to_optimize_map_T_global = static_cast<int>(max_map_optmization_poses_);
+    
     global_map_frames_manager_ = std::make_shared<GlobalMapFramesManager>(map_data_path, map_name, maximum_number_of_poses_to_optimize_map_T_global);
     map_cloud_ = global_map_frames_manager_->getMapCloud(0.1f);
     applyUniformSubsample(map_cloud_, 3);
@@ -51,42 +49,46 @@ LocalizationNode::LocalizationNode() : Node("localization_node")
     ref_cropped_map_cloud_ = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
 
     // Create the publishers for the odometry and the point cloud
-    map_T_sensor_pub_ = this->create_publisher<nav_msgs::msg::Odometry>("/localization/map_T_sensor", 10);
-    map_T_sensor_prior_pub_ = this->create_publisher<nav_msgs::msg::Odometry>("/localization/map_T_sensor_prior", 10);
-    odom_T_sensor_pub_ = this->create_publisher<nav_msgs::msg::Odometry>("/localization/odom_T_sensor", 10);
-    map_T_sensor_gps_pub_ = this->create_publisher<nav_msgs::msg::Odometry>("/localization/map_T_sensor_gps", 10);
-    cropped_scan_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/localization/cropped_scan_map_frame", 10);
-    map_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/localization/map", 10);
+    map_T_sensor_pub_ = nh.advertise<nav_msgs::Odometry>("/localization/map_T_sensor", 10);
+    map_T_sensor_prior_pub_ = nh.advertise<nav_msgs::Odometry>("/localization/map_T_sensor_prior", 10);
+    odom_T_sensor_pub_ = nh.advertise<nav_msgs::Odometry>("/localization/odom_T_sensor", 10);
+    map_T_sensor_gps_pub_ = nh.advertise<nav_msgs::Odometry>("/localization/map_T_sensor_gps", 10);
+    cropped_scan_pub_ = nh.advertise<sensor_msgs::PointCloud2>("/localization/cropped_scan_map_frame", 10);
+    map_pub_ = nh.advertise<sensor_msgs::PointCloud2>("/localization/map", 10);
 
     // Compass subscriber, will be used to get the yaw angle
-    compass_subscription_ = this->create_subscription<std_msgs::msg::Float64>(
+    compass_subscription_ = nh.subscribe<std_msgs::Float64>(
         "/mavros/global_position/compass_hdg",
         10,
-        [this](const std_msgs::msg::Float64::SharedPtr msg) {
-            // Invert the yaw based on Ardupilot convention that clockwise is positive
-            current_compass_yaw_ = static_cast<float>((90.0 - msg->data) * M_PI / 180.0);
-            // Make sure the yaw is in the range -M_PI to M_PI
-            if (current_compass_yaw_ > M_PI)
-            {
-                current_compass_yaw_ -= 2 * M_PI;
-            }
-            else if (current_compass_yaw_ < -M_PI)
-            {
-                current_compass_yaw_ += 2 * M_PI;
-            }
-        });
+        &MapDataSaver::compassCallback, this);
 
     // Initialize synchronized subscribers
-    pointcloud_sub_ = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::PointCloud2>>(this, "/cloud_registered_body");
-    gps_sub_ = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::NavSatFix>>(this, "/mavros/global_position/global");
-    odom_sub_ = std::make_shared<message_filters::Subscriber<nav_msgs::msg::Odometry>>(this, "/Odometry");
-    sync_ = std::make_shared<message_filters::Synchronizer<SyncPolicy>>(SyncPolicy(5), *pointcloud_sub_, *gps_sub_, *odom_sub_);
-    sync_->registerCallback(std::bind(&LocalizationNode::localizationCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+    pointcloud_sub_.subscribe(nh, "/cloud_registered", 10);
+    gps_sub_.subscribe(nh, "/mavros/global_position/global", 10);
+    odom_sub_.subscribe(nh, "/Odometry", 10);
+    sync_.reset(new message_filters::Synchronizer<SyncPolicy>(
+        SyncPolicy(50), pointcloud_sub_, gps_sub_, odom_sub_));
+    sync_->registerCallback(bool::bind(&LocalizationNode::localizationCallback, this, _1, _2, _3));
 
-    RCLCPP_INFO(this->get_logger(), "Localization node initialized!");
+    ROS_INFO("Localization node initialized!");
 }
 
-inline void LocalizationNode::computePosePredictionFromOdometry(const nav_msgs::msg::Odometry::ConstSharedPtr& odom_msg,
+void MapDataSaver::compassCallback(const std_msgs::Float64::ConstPtr& msg)
+{
+    // Invert the yaw based on Ardupilot convention that clockwise is positive
+    current_compass_yaw_ = (90.0 - msg->data) * M_PI / 180.0;
+    // Make sure the yaw is in the range -M_PI to M_PI
+    if (current_compass_yaw_ > M_PI)
+    {
+        current_compass_yaw_ -= 2 * M_PI;
+    }
+    else if (current_compass_yaw_ < -M_PI)
+    {
+        current_compass_yaw_ += 2 * M_PI;
+    }
+}
+
+inline void LocalizationNode::computePosePredictionFromOdometry(const nav_msgs::Odometry::ConstPtr& odom_msg,
                                                                 Eigen::Matrix4f& odom_T_sensor_current,
                                                                 Eigen::Matrix4f& map_T_sensor_current_odom) const
 {
@@ -109,7 +111,7 @@ inline void LocalizationNode::computePosePredictionFromOdometry(const nav_msgs::
     map_T_sensor_current_odom = map_T_sensor_ * previous_T_current;
 }
 
-const Eigen::Matrix4f LocalizationNode::computeGpsCoarsePoseInMapFrame(const sensor_msgs::msg::NavSatFix::ConstSharedPtr& gps_msg) const
+const Eigen::Matrix4f LocalizationNode::computeGpsCoarsePoseInMapFrame(const sensor_msgs::NavSatFix::ConstPtr& gps_msg) const
 {
     // Convert the compass yaw to a rotation matrix
     Eigen::Matrix3f global_R_sensor;
@@ -127,12 +129,12 @@ const Eigen::Matrix4f LocalizationNode::computeGpsCoarsePoseInMapFrame(const sen
     return map_T_global_.cast<float>() * global_T_sensor;
 }
 
-inline nav_msgs::msg::Odometry LocalizationNode::buildNavOdomMsg(const Eigen::Matrix4f& T, 
+inline nav_msgs::Odometry LocalizationNode::buildNavOdomMsg(const Eigen::Matrix4f& T, 
                                                 const std::string& frame_id, 
                                                 const std::string& child_frame_id, 
-                                                const rclcpp::Time& stamp) const
+                                                const ros::Time& stamp) const
 {
-    nav_msgs::msg::Odometry odom_msg;
+    nav_msgs::Odometry odom_msg;
     odom_msg.header.stamp = stamp;
     odom_msg.header.frame_id = frame_id;
     odom_msg.child_frame_id = child_frame_id;
@@ -148,8 +150,8 @@ inline nav_msgs::msg::Odometry LocalizationNode::buildNavOdomMsg(const Eigen::Ma
     return odom_msg;
 }
 
-void LocalizationNode::computePoseGainsFromCovarianceMatrices(const sensor_msgs::msg::NavSatFix::ConstSharedPtr& gps_msg,
-                                                              const nav_msgs::msg::Odometry::ConstSharedPtr& odom_msg,
+void LocalizationNode::computePoseGainsFromCovarianceMatrices(const sensor_msgs::NavSatFix::ConstPtr& gps_msg,
+                                                              const nav_msgs::Odometry::ConstPtr& odom_msg,
                                                               float& odom_gain, float& gps_gain, const bool fixed) const
 {
     // If fixed just send constant value to the gains with more value to odometry
@@ -178,8 +180,8 @@ void LocalizationNode::computePoseGainsFromCovarianceMatrices(const sensor_msgs:
     gps_gain = odom_weight / total_det;
 }
 
-void LocalizationNode::initializePosesWithFirstReading(const sensor_msgs::msg::NavSatFix::ConstSharedPtr& gps_msg,
-                                                    const nav_msgs::msg::Odometry::ConstSharedPtr& odom_msg)
+void LocalizationNode::initializePosesWithFirstReading(const sensor_msgs::NavSatFix::ConstPtr& gps_msg,
+                                                    const nav_msgs::Odometry::ConstPtr& odom_msg)
 {
     // Set the map_T_sensor based on the first GPS reading
     map_T_sensor_ = computeGpsCoarsePoseInMapFrame(gps_msg);
@@ -219,7 +221,7 @@ bool LocalizationNode::performCoarseAlignment(const pcl::PointCloud<PointT>::Ptr
         if (!brute_force_alignment_->alignClouds())
         {
             // If the brute force was not successfull enough, lets run some strong ICP to align
-            RCLCPP_WARN(this->get_logger(), "Brute force alignment not successfull, will try ICP.");
+            ROS_WARN("Brute force alignment not successfull, will try ICP.");
             icp_->setTargetPointCloud(map_cloud_temp);
             icp_->setSourcePointCloud(scan_cloud_temp);
             icp_->setInitialTransformation(brute_force_alignment_->getBestTransformation());
@@ -241,14 +243,14 @@ bool LocalizationNode::performCoarseAlignment(const pcl::PointCloud<PointT>::Ptr
             }
             else
             {
-                RCLCPP_WARN(this->get_logger(), "ICP alignment not successfull, will try again next time.");
+                ROS_WARN("ICP alignment not successfull, will try again next time.");
                 brute_force_alignment_->resetFirstAlignment(false);
                 return false;
             }
         }
         else
         {
-            RCLCPP_INFO(this->get_logger(), "First alignment completed, proceeding to fine alignment.");
+            ROS_INFO("First alignment completed, proceeding to fine alignment.");
             coarse_alignment_complete_ = true;
             map_T_sensor_ = brute_force_alignment_->getBestTransformation();
             return true;
@@ -260,9 +262,9 @@ bool LocalizationNode::performCoarseAlignment(const pcl::PointCloud<PointT>::Ptr
     }
 }
 
-void LocalizationNode::localizationCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& pointcloud_msg,
-                                            const sensor_msgs::msg::NavSatFix::ConstSharedPtr& gps_msg,
-                                            const nav_msgs::msg::Odometry::ConstSharedPtr& odom_msg)
+void LocalizationNode::localizationCallback(const sensor_msgs::PointCloud2::ConstPtr& pointcloud_msg,
+                                            const sensor_msgs::NavSatFix::ConstPtr& gps_msg,
+                                            const nav_msgs::Odometry::ConstPtr& odom_msg)
 {
     ///////////////////////////////////////// NODE STARTUP /////////////////////////////////////////
     // If the altitude is still wrong, we cannot proceed
@@ -270,7 +272,7 @@ void LocalizationNode::localizationCallback(const sensor_msgs::msg::PointCloud2:
     {
         if (debug_)
         {
-            RCLCPP_WARN(this->get_logger(), "Altitude is still not correct, waiting for a valid GPS message.");
+            ROS_WARN("Altitude is still not correct, waiting for a valid GPS message.");
         }
         return;
     }
@@ -341,7 +343,7 @@ void LocalizationNode::localizationCallback(const sensor_msgs::msg::PointCloud2:
     odom_T_sensor_previous_ = odom_T_sensor_current;
 
     // Publish the localized pose in map frame
-    map_T_sensor_pub_->publish(buildNavOdomMsg(map_T_sensor_, "map", "sensor", pointcloud_msg->header.stamp));
+    map_T_sensor_pub_.publish(buildNavOdomMsg(map_T_sensor_, "map", "sensor", ros::Time::now()));
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -350,25 +352,25 @@ void LocalizationNode::localizationCallback(const sensor_msgs::msg::PointCloud2:
         // Log the time taken to process the callback
         auto end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> elapsed = end - start;
-        RCLCPP_INFO(this->get_logger(), "CALLBACK TOOK %f seconds", elapsed.count());
+        ROS_INFO("CALLBACK TOOK %f seconds", elapsed.count());
         // Publish debug poses
-        map_T_sensor_prior_pub_->publish(buildNavOdomMsg(map_T_sensor_prior, "map", "sensor", pointcloud_msg->header.stamp));
-        odom_T_sensor_pub_->publish(buildNavOdomMsg(odom_T_sensor_current, "map", "sensor", pointcloud_msg->header.stamp));
-        map_T_sensor_gps_pub_->publish(buildNavOdomMsg(map_T_sensor_gps, "map", "sensor", pointcloud_msg->header.stamp));
+        map_T_sensor_prior_pub_.publish(buildNavOdomMsg(map_T_sensor_prior, "map", "sensor", ros::Time::now()));
+        odom_T_sensor_pub_.publish(buildNavOdomMsg(odom_T_sensor_current, "map", "sensor", ros::Time::now()));
+        map_T_sensor_gps_pub_.publish(buildNavOdomMsg(map_T_sensor_gps, "map", "sensor", ros::Time::now()));
         // Publish the cropped scan
         pcl::transformPointCloud(*cropped_scan_cloud, *cropped_scan_cloud, map_T_sensor_);
         cropped_scan_cloud->header.frame_id = "map";
-        sensor_msgs::msg::PointCloud2 cropped_scan_msg;
+        sensor_msgs::PointCloud2 cropped_scan_msg;
         pcl::toROSMsg(*cropped_scan_cloud, cropped_scan_msg);
         cropped_scan_msg.header = pointcloud_msg->header;
         cropped_scan_msg.header.frame_id = "map";
-        cropped_scan_pub_->publish(cropped_scan_msg);
+        cropped_scan_pub_.publish(cropped_scan_msg);
         // Publish the cropped map
         ref_cropped_map_cloud_->header.frame_id = "map";
-        sensor_msgs::msg::PointCloud2 cropped_map_msg;
+        sensor_msgs::PointCloud2 cropped_map_msg;
         pcl::toROSMsg(*ref_cropped_map_cloud_, cropped_map_msg);
-        cropped_map_msg.header = pointcloud_msg->header;
+        cropped_map_msg.header = ros::Time::now();
         cropped_map_msg.header.frame_id = "map";
-        map_pub_->publish(cropped_map_msg);
+        map_pub_.publish(cropped_map_msg);
     }
 }

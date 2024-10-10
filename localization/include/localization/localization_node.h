@@ -106,6 +106,10 @@ private:
                               const sensor_msgs::NavSatFix::ConstPtr& gps_msg,
                               const nav_msgs::Odometry::ConstPtr& odom_msg);
     
+    /// @brief Callback to get the yaw angle from compass
+    /// @param msg The compass message
+    void compassCallback(const std_msgs::Float64::ConstPtr& msg);
+
     /// @brief Synchronizer policy
     using SyncPolicy = message_filters::sync_policies::ApproximateTime<
         sensor_msgs::PointCloud2,
