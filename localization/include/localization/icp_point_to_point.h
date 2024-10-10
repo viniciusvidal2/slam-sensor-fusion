@@ -97,7 +97,8 @@ private:
     /// @brief Find the correspondences in the target cloud for the source cloud and fill the clouds with them
     /// @param source_cloud The source cloud
     /// @param target_cloud The target cloud
-    void sourceTargetCorrespondences(Eigen::MatrixX3f& source_cloud, Eigen::MatrixX3f& target_cloud) const;
+    /// @return True if the correspondences were found, false otherwise
+    bool sourceTargetCorrespondences(Eigen::MatrixX3f& source_cloud, Eigen::MatrixX3f& target_cloud) const;
 
     /// @brief Compute the best transformation from the two clouds
     /// @param source_cloud The source cloud

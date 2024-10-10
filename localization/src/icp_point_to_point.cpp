@@ -54,7 +54,7 @@ void ICPPointToPoint::setTargetPointCloud(const pcl::PointCloud<PointT>::Ptr &ta
     kdtree_.setInputCloud(target_cloud);
 }
 
-void ICPPointToPoint::sourceTargetCorrespondences(Eigen::MatrixX3f& source_cloud, Eigen::MatrixX3f& target_cloud) const
+bool ICPPointToPoint::sourceTargetCorrespondences(Eigen::MatrixX3f& source_cloud, Eigen::MatrixX3f& target_cloud) const
 {
     // Init correspondences
     std::vector<std::pair<Eigen::Vector3f, PointT>> correspondences;
@@ -73,6 +73,12 @@ void ICPPointToPoint::sourceTargetCorrespondences(Eigen::MatrixX3f& source_cloud
         }
     }
 
+    if (correspondences.size() < 10)
+    {
+        std::cerr << "[ICP ERROR] Not enough valid correspondences found. Aborting." << std::endl;
+        return false;
+    }
+
     // Reset the input clouds with the correspondences
     source_cloud.resize(correspondences.size(), 3);
     target_cloud.resize(correspondences.size(), 3);
@@ -81,6 +87,8 @@ void ICPPointToPoint::sourceTargetCorrespondences(Eigen::MatrixX3f& source_cloud
         source_cloud.row(i) = correspondences[i].first;
         target_cloud.row(i) = Eigen::Vector3f(correspondences[i].second.x, correspondences[i].second.y, correspondences[i].second.z);
     }
+
+    return true;
 }
 
 inline Eigen::MatrixX3f ICPPointToPoint::convertPclToEigen(const pcl::PointCloud<PointT>::Ptr &cloud) const
@@ -190,14 +198,6 @@ ICPResult ICPPointToPoint::calculateAlignment()
     // Apply transformation to the source cloud
     Eigen::MatrixX3f transformed_source_cloud(source_cloud_);
     applyTransformation(initial_transform_, transformed_source_cloud);
-    // Get the correspondences in the target cloud
-    Eigen::MatrixX3f correspondent_target_cloud;
-    sourceTargetCorrespondences(transformed_source_cloud, correspondent_target_cloud);
-    if (transformed_source_cloud.rows() < 10)
-    {
-        std::cerr << "[ICP ERROR] Not enough valid correspondences found. Aborting." << std::endl;
-        return icp_result;
-    }
 
     // Iterate the algorithm
     Eigen::Matrix4f source_T_target = initial_transform_;
@@ -205,6 +205,13 @@ ICPResult ICPPointToPoint::calculateAlignment()
     last_error_ = std::numeric_limits<float>::max();
     for (int i = 0; i < num_iterations_; ++i)
     {
+        // Get the correspondences in the target cloud
+        Eigen::MatrixX3f correspondent_target_cloud;
+        if (!sourceTargetCorrespondences(transformed_source_cloud, correspondent_target_cloud))
+        {
+            std::cerr << "[ICP ERROR] Not enough valid correspondences found. Aborting." << std::endl;
+            return icp_result;
+        }
         // Calculate the error metric
         const float error = calculateErrorMetric(transformed_source_cloud, correspondent_target_cloud);
         if (debug_mode_)
@@ -212,15 +219,10 @@ ICPResult ICPPointToPoint::calculateAlignment()
             printStepDebug(i, error);
         }
         // Check if we reached the acceptable error
-        if (error < acceptable_mean_error_)
+        if (error < acceptable_mean_error_ || std::abs(last_error_ - error) < transformation_epsilon_)
         {
             last_error_ = error;
             break;
-        }
-        // If transformation is already very minimal, look for the correspondences again
-        if (std::abs(last_error_ - error) < transformation_epsilon_)
-        {
-            sourceTargetCorrespondences(transformed_source_cloud, correspondent_target_cloud);
         }
         // Compute the best transformation for the step
         const Eigen::Matrix4f T_step = calculateStepBestTransformation(transformed_source_cloud, correspondent_target_cloud);
