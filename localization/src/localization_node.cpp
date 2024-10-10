@@ -1,6 +1,6 @@
 #include "localization/localization_node.h"
 
-LocalizationNode::LocalizationNode(ros::NodeHandle& nh)
+LocalizationNode::LocalizationNode(ros::NodeHandle nh)
 {
     // Parameters
     nh.getParam("enable_debug", debug_);
@@ -11,9 +11,9 @@ LocalizationNode::LocalizationNode(ros::NodeHandle& nh)
     // Init the map point cloud and transformation with the frames manager
     std::string map_data_path = folder_save_path_;
     std::string map_name = map_name_;
-    int maximum_number_of_poses_to_optimize_map_T_global = static_cast<int>(max_map_optmization_poses_);
     
-    global_map_frames_manager_ = std::make_shared<GlobalMapFramesManager>(map_data_path, map_name, maximum_number_of_poses_to_optimize_map_T_global);
+    global_map_frames_manager_ = std::make_shared<GlobalMapFramesManager>(map_data_path, map_name, 
+                                                                        static_cast<int>(max_map_optimization_poses_));
     map_cloud_ = global_map_frames_manager_->getMapCloud(0.1f);
     applyUniformSubsample(map_cloud_, 3);
     map_T_global_ = global_map_frames_manager_->getMapTGlobal();
@@ -59,21 +59,20 @@ LocalizationNode::LocalizationNode(ros::NodeHandle& nh)
     // Compass subscriber, will be used to get the yaw angle
     compass_subscription_ = nh.subscribe<std_msgs::Float64>(
         "/mavros/global_position/compass_hdg",
-        10,
-        &MapDataSaver::compassCallback, this);
+        10, &LocalizationNode::compassCallback, this);
 
     // Initialize synchronized subscribers
-    pointcloud_sub_.subscribe(nh, "/cloud_registered", 10);
-    gps_sub_.subscribe(nh, "/mavros/global_position/global", 10);
-    odom_sub_.subscribe(nh, "/Odometry", 10);
+    pointcloud_sub_.subscribe(nh, "/cloud_registered", 3);
+    gps_sub_.subscribe(nh, "/mavros/global_position/global", 3);
+    odom_sub_.subscribe(nh, "/Odometry", 3);
     sync_.reset(new message_filters::Synchronizer<SyncPolicy>(
-        SyncPolicy(50), pointcloud_sub_, gps_sub_, odom_sub_));
-    sync_->registerCallback(bool::bind(&LocalizationNode::localizationCallback, this, _1, _2, _3));
+        SyncPolicy(3), pointcloud_sub_, gps_sub_, odom_sub_));
+    sync_->registerCallback(boost::bind(&LocalizationNode::localizationCallback, this, _1, _2, _3));
 
     ROS_INFO("Localization node initialized!");
 }
 
-void MapDataSaver::compassCallback(const std_msgs::Float64::ConstPtr& msg)
+void LocalizationNode::compassCallback(const std_msgs::Float64::ConstPtr& msg)
 {
     // Invert the yaw based on Ardupilot convention that clockwise is positive
     current_compass_yaw_ = (90.0 - msg->data) * M_PI / 180.0;
@@ -343,7 +342,7 @@ void LocalizationNode::localizationCallback(const sensor_msgs::PointCloud2::Cons
     odom_T_sensor_previous_ = odom_T_sensor_current;
 
     // Publish the localized pose in map frame
-    map_T_sensor_pub_.publish(buildNavOdomMsg(map_T_sensor_, "map", "sensor", ros::Time::now()));
+    map_T_sensor_pub_.publish(buildNavOdomMsg(map_T_sensor_, "map", "sensor", odom_msg->header.stamp));
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -354,9 +353,9 @@ void LocalizationNode::localizationCallback(const sensor_msgs::PointCloud2::Cons
         std::chrono::duration<double> elapsed = end - start;
         ROS_INFO("CALLBACK TOOK %f seconds", elapsed.count());
         // Publish debug poses
-        map_T_sensor_prior_pub_.publish(buildNavOdomMsg(map_T_sensor_prior, "map", "sensor", ros::Time::now()));
-        odom_T_sensor_pub_.publish(buildNavOdomMsg(odom_T_sensor_current, "map", "sensor", ros::Time::now()));
-        map_T_sensor_gps_pub_.publish(buildNavOdomMsg(map_T_sensor_gps, "map", "sensor", ros::Time::now()));
+        map_T_sensor_prior_pub_.publish(buildNavOdomMsg(map_T_sensor_prior, "map", "sensor", odom_msg->header.stamp));
+        odom_T_sensor_pub_.publish(buildNavOdomMsg(odom_T_sensor_current, "map", "sensor", odom_msg->header.stamp));
+        map_T_sensor_gps_pub_.publish(buildNavOdomMsg(map_T_sensor_gps, "map", "sensor", odom_msg->header.stamp));
         // Publish the cropped scan
         pcl::transformPointCloud(*cropped_scan_cloud, *cropped_scan_cloud, map_T_sensor_);
         cropped_scan_cloud->header.frame_id = "map";
@@ -369,7 +368,7 @@ void LocalizationNode::localizationCallback(const sensor_msgs::PointCloud2::Cons
         ref_cropped_map_cloud_->header.frame_id = "map";
         sensor_msgs::PointCloud2 cropped_map_msg;
         pcl::toROSMsg(*ref_cropped_map_cloud_, cropped_map_msg);
-        cropped_map_msg.header = ros::Time::now();
+        cropped_map_msg.header.stamp = odom_msg->header.stamp;
         cropped_map_msg.header.frame_id = "map";
         map_pub_.publish(cropped_map_msg);
     }

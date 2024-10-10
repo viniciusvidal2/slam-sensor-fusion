@@ -110,17 +110,17 @@ private:
     /// @param msg The compass message
     void compassCallback(const std_msgs::Float64::ConstPtr& msg);
 
-    /// @brief Synchronizer policy
-    using SyncPolicy = message_filters::sync_policies::ApproximateTime<
+    // Synchronizer policy
+    typedef message_filters::sync_policies::ApproximateTime<
         sensor_msgs::PointCloud2,
         sensor_msgs::NavSatFix,
-        nav_msgs::Odometry>;
+        nav_msgs::Odometry> SyncPolicy;
 
-    /// @brief Subscribers and synchronizer
+    // Subscribers and synchronizer
     ros::Subscriber compass_subscription_;
-    std::shared_ptr<message_filters::Subscriber<sensor_msgs::PointCloud2>> pointcloud_sub_;
-    std::shared_ptr<message_filters::Subscriber<sensor_msgs::NavSatFix>> gps_sub_;
-    std::shared_ptr<message_filters::Subscriber<nav_msgs::Odometry>> odom_sub_;  
+    message_filters::Subscriber<sensor_msgs::PointCloud2> pointcloud_sub_;
+    message_filters::Subscriber<sensor_msgs::NavSatFix> gps_sub_;
+    message_filters::Subscriber<nav_msgs::Odometry> odom_sub_;
     std::shared_ptr<message_filters::Synchronizer<SyncPolicy>> sync_;
 
     /// @brief Publishers
