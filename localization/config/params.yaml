@@ -1,0 +1,23 @@
+debug:
+  enable: true
+
+map_data:
+  home_relative_path: "Desktop/map_data"
+  name: "map"
+  max_map_optimization_poses: 50
+  voxel_resolution: 0.1 # [m]
+  ref_frame_distance: 3.0 # [m]
+
+icp:
+  num_iterations: 16
+  transformation_epsilon: 1e-8
+  max_correspondence_distance: 0.5 # [m]
+  mean_accepted_error: 0.05 # [m]
+
+velocity_filter:
+  max_velocity: 1.6 # [m/s]
+
+pose_gains_calculation:
+  fixed: false
+  odom_fixed_gain: 0.95
+  gps_fixed_gain: 0.05

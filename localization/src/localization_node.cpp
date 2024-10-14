@@ -3,27 +3,33 @@
 LocalizationNode::LocalizationNode(ros::NodeHandle nh)
 {
     // Parameters
-    nh.getParam("enable_debug", debug_);
-    nh.getParam("map_data_path", folder_save_path_);
-    nh.getParam("map_name", map_name_);
-    nh.getParam("max_map_optimization_poses", max_map_optimization_poses_);
+    ros::NodeHandle pnh("~");
+    pnh.param("/debug/enable", debug_, false);
+    pnh.param("/map_data/home_relative_path", relative_folder_path_, static_cast<std::string>("Desktop/map_data"));
+    pnh.param("/map_data/name", map_name_, static_cast<std::string>("map"));
+    pnh.param("/map_data/max_map_optimization_poses", max_map_optimization_poses_, 50);
+    pnh.param("/map_data/voxel_resolution", map_voxel_size_, 0.1f);
+    pnh.param("/map_data/ref_frame_distance", ref_frame_distance_, 3.0f);
+    pnh.param("/icp/num_iterations", icp_iterations_, 16);
+    pnh.param("/icp/transformation_epsilon", icp_transform_epsilon_, 1e-8f);
+    pnh.param("/icp/max_correspondence_dist", icp_max_correspondence_dist_, 0.05f);
+    pnh.param("/icp/mean_accepted_error", icp_mean_accepted_error_, 0.05f);
+    pnh.param("/velocity_filter/max_velocity", max_rover_velocity_, 1.6f);
+    pnh.param("/pose_gains_calculation/fixed", pose_gains_calculation_option_, false);
+    pnh.param("/pose_gains_calculation/odom_fixed_gain", odom_fixed_gain_, 0.95f);
+    pnh.param("/pose_gains_calculation/gps_fixed_gain", gps_fixed_gain_, 0.05f);
 
     // Init the map point cloud and transformation with the frames manager
-    std::string map_data_path = folder_save_path_;
-    std::string map_name = map_name_;
-    
-    global_map_frames_manager_ = std::make_shared<GlobalMapFramesManager>(map_data_path, map_name, 
-                                                                        static_cast<int>(max_map_optimization_poses_));
-    map_cloud_ = global_map_frames_manager_->getMapCloud(0.1f);
+    global_map_frames_manager_ = std::make_shared<GlobalMapFramesManager>(std::string(std::getenv("HOME")) + "/" + relative_folder_path_, 
+                                                                        map_name_, 
+                                                                        static_cast<std::size_t>(max_map_optimization_poses_));
+    map_cloud_ = global_map_frames_manager_->getMapCloud(map_voxel_size_);
     applyUniformSubsample(map_cloud_, 3);
     map_T_global_ = global_map_frames_manager_->getMapTGlobal();
 
     // Init the ICP object to compute Point to Point alignment
-    const int num_iterations = 10;
-    const float transformation_epsilon = 1e-8f;
-    const float max_correspondence_dist = 0.5f; // [m]
-    const float mean_accepted_error = 0.05f; // [m]
-    icp_ = std::make_shared<ICPPointToPoint>(max_correspondence_dist, num_iterations, mean_accepted_error, transformation_epsilon);
+    icp_ = std::make_shared<ICPPointToPoint>(icp_max_correspondence_dist_, icp_iterations_, 
+                                            icp_mean_accepted_error_, icp_transform_epsilon_);
     icp_->setDebugMode(debug_);
 
     // Reference transforms
@@ -138,13 +144,13 @@ inline nav_msgs::Odometry LocalizationNode::buildNavOdomMsg(const Eigen::Matrix4
 
 void LocalizationNode::computePoseGainsFromCovarianceMatrices(const sensor_msgs::NavSatFix::ConstPtr& gps_msg,
                                                               const nav_msgs::Odometry::ConstPtr& odom_msg,
-                                                              float& odom_gain, float& gps_gain, const bool fixed) const
+                                                              float& odom_gain, float& gps_gain) const
 {
     // If fixed just send constant value to the gains with more value to odometry
-    if (fixed)
+    if (pose_gains_calculation_option_)
     {
-        odom_gain = 0.95f;
-        gps_gain = 0.05f;
+        odom_gain = odom_fixed_gain_;
+        gps_gain = gps_fixed_gain_;
         return;
     }
 
@@ -173,12 +179,11 @@ void LocalizationNode::velocityFilter(Eigen::Matrix4f& pose,
     // Calculate the velocity
     const Eigen::Vector3f t = pose.block<3, 1>(0, 3) - previous_pose.block<3, 1>(0, 3);
     const Eigen::Vector3f velocity_vector = t/time_diff;
-    // If the velocity is too high, filter it to velocity max
-    const float velocity_max = 1.6f; // [m/s]
+    // If the velocity is too high, filter it to max_rover_velocity_
     const float velocity_value = velocity_vector.norm();
-    if (velocity_value > velocity_max)
+    if (velocity_value > max_rover_velocity_)
     {
-        pose.block<3, 1>(0, 3) = previous_pose.block<3, 1>(0, 3) + velocity_max/velocity_value*t;
+        pose.block<3, 1>(0, 3) = previous_pose.block<3, 1>(0, 3) + max_rover_velocity_/velocity_value*t;
     }
 }
 
@@ -229,7 +234,8 @@ bool LocalizationNode::performCoarseAlignment(const pcl::PointCloud<PointT>::Ptr
     std::vector<float> acceptable_mean_errors = {0.3f, 0.2f};
     // Apply a heavy ICP to get the initial alignment
     ROS_WARN("Running brute force with ICP.");
-    float best_error = 1e6;
+    float best_error = 1e6f;
+    icp_->setNumIterations(100);
     for (const auto& max_corresp_dist : max_corresp_distances)
     {
         for (const auto& acceptable_mean_error : acceptable_mean_errors)
@@ -249,10 +255,10 @@ bool LocalizationNode::performCoarseAlignment(const pcl::PointCloud<PointT>::Ptr
             {
                 ROS_WARN("ICP alignment successfull with max_corresp_dist: %f and acceptable_mean_error: %f", 
                         max_corresp_dist, acceptable_mean_error);
-                icp_->setMaxCorrespondenceDist(0.4f);
-                icp_->setTransformationEpsilon(1e-6f);
-                icp_->setAcceptableMeanError(0.05f);
-                icp_->setNumIterations(16);
+                icp_->setMaxCorrespondenceDist(icp_max_correspondence_dist_);
+                icp_->setTransformationEpsilon(icp_transform_epsilon_);
+                icp_->setAcceptableMeanError(icp_mean_accepted_error_);
+                icp_->setNumIterations(icp_iterations_);
                 map_T_sensor_ = icp_result.transformation;
                 map_T_odom_ = map_T_sensor_;
                 coarse_alignment_complete_ = true;
@@ -334,7 +340,7 @@ void LocalizationNode::localizationCallback(const sensor_msgs::PointCloud2::Cons
 
     // Obtain the weighted coarse pose from GPS and Odometry fusion based on covariance
     float gps_compass_gain, odometry_gain;
-    computePoseGainsFromCovarianceMatrices(gps_msg, odom_msg, odometry_gain, gps_compass_gain, false);
+    computePoseGainsFromCovarianceMatrices(gps_msg, odom_msg, odometry_gain, gps_compass_gain);
     Eigen::Matrix4f map_T_sensor_prior = odometry_gain*map_T_sensor_odom + gps_compass_gain*map_T_sensor_gps;
     velocityFilter(map_T_sensor_prior, map_T_sensor_, time_diff);
     

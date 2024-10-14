@@ -80,10 +80,9 @@ private:
     /// @param odom_msg The odometry message
     /// @param odom_gain The odometry gain
     /// @param gps_gain The GPS gain
-    /// @param fixed True if the GPS and ODOM covariances should be fixed
     void computePoseGainsFromCovarianceMatrices(const sensor_msgs::NavSatFix::ConstPtr& gps_msg,
                                                 const nav_msgs::Odometry::ConstPtr& odom_msg,
-                                                float& odom_gain, float& gps_gain, const bool fixed) const;
+                                                float& odom_gain, float& gps_gain) const;
 
     /// @brief Initialize the poses with the first reading
     /// @param gps_msg The GPS message
@@ -149,37 +148,41 @@ private:
     Eigen::Matrix4f map_T_ref_;
     Eigen::Matrix4f map_T_odom_;
 
-    /// @brief Map point cloud variables
-    pcl::PointCloud<PointT>::Ptr map_cloud_;
-    pcl::PointCloud<PointT>::Ptr ref_cropped_map_cloud_;
-
-    /// @brief Reference frame distance to crop the map again
-    const float ref_frame_distance_{3.0f}; // [m]
-
-    /// @brief Map crop radius
-    const float cloud_crop_radius_{10.0f}; // [m]
-
-    /// @brief ICP object
+    /// @brief ICP object and parameters
     std::shared_ptr<ICPPointToPoint> icp_;
+    int icp_iterations_{16};
+    float icp_transform_epsilon_{1e-8f};
+    float icp_max_correspondence_dist_{0.05f};
+    float icp_mean_accepted_error_{0.05f};
 
     /// @brief Global frame manager object
     std::shared_ptr<GlobalMapFramesManager> global_map_frames_manager_;
 
-    std::string folder_save_path_{std::string(std::getenv("HOME")) + "/Desktop/map_data"};
+    /// @brief Map clouds parameters
+    pcl::PointCloud<PointT>::Ptr map_cloud_;
+    pcl::PointCloud<PointT>::Ptr ref_cropped_map_cloud_;
+    int max_map_optimization_poses_{50};
+    float map_voxel_size_{0.1f}; // [m]
+    float ref_frame_distance_{3.0f}; // [m]
+    const float cloud_crop_radius_{10.0f}; // [m]
+    std::string relative_folder_path_{"/Desktop/map_data"};
     std::string map_name_{"map"};
-    double max_map_optimization_poses_{50.0};
 
-    /// @brief Debug flag
+    /// @brief Flags
     bool debug_{false};
-
-    /// @brief Checking if first time we enter the callback to have a reference point
     bool first_time_{true};
-
-    /// @brief Flag to tell if the coarse alignment is complete
     bool coarse_alignment_complete_{false};
 
     /// @brief Previous odom message stamp received in the callback
     ros::Time previous_odom_stamp_{ros::Time(0)};
+
+    /// @brief Covariance filter parameters
+    bool pose_gains_calculation_option_{false};
+    float odom_fixed_gain_{0.95};
+    float gps_fixed_gain_{0.05};
+
+    /// @brief Velocity filter parameters
+    float max_rover_velocity_{1.6f}; // [m/s]
 };
 
 #endif

@@ -1,15 +1,7 @@
 <launch>
-    <!-- Declare arguments -->
-    <arg name="map_data_path" default="$(env HOME)/Desktop/map_data" />
-    <arg name="map_name" default="map" />
-    <arg name="enable_debug" default="false" />
-    <arg name="max_map_optimization_poses" default="50.0" />
+    <!-- Load the YAML file with parameters -->
+    <rosparam command="load" file="$(find localization)/config/params.yaml"/>
 
     <!-- Launch the localization node -->
-    <node pkg="localization" type="localization_node" name="localization_node" output="screen">
-        <param name="map_data_path" value="$(arg map_data_path)" />
-        <param name="map_name" value="$(arg map_name)" />
-        <param name="enable_debug" value="$(arg enable_debug)" />
-        <param name="max_map_optimization_poses" value="$(arg max_map_optimization_poses)" />
-    </node>
+    <node pkg="localization" type="localization_node" name="localization_node" output="screen"/>
 </launch>
