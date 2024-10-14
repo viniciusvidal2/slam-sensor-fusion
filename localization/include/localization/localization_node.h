@@ -91,6 +91,14 @@ private:
     void initializePosesWithFirstReading(const sensor_msgs::NavSatFix::ConstPtr& gps_msg,
                                         const nav_msgs::Odometry::ConstPtr& odom_msg);
 
+    /// @brief Simple velocity filter to avoid glitches
+    /// @param pose The pose to filter
+    /// @param previous_pose The previous pose
+    /// @param time_diff The time difference between the poses
+    void velocityFilter(Eigen::Matrix4f& pose,
+                        const Eigen::Matrix4f& previous_pose,
+                        const float time_diff) const;
+
     /// @brief Perform the coarse alignment between the scan and the map
     /// @param scan_cloud The scan point cloud
     /// @param map_cloud The map point cloud
@@ -157,10 +165,6 @@ private:
     /// @brief Global frame manager object
     std::shared_ptr<GlobalMapFramesManager> global_map_frames_manager_;
 
-    /// @brief Stochastic filter objects
-    std::shared_ptr<StochasticFilter> coarse_pose_filter_;
-    std::shared_ptr<StochasticFilter> fine_pose_filter_;
-
     std::string folder_save_path_{std::string(std::getenv("HOME")) + "/Desktop/map_data"};
     std::string map_name_{"map"};
     double max_map_optimization_poses_{50.0};
@@ -173,6 +177,9 @@ private:
 
     /// @brief Flag to tell if the coarse alignment is complete
     bool coarse_alignment_complete_{false};
+
+    /// @brief Previous odom message stamp received in the callback
+    ros::Time previous_odom_stamp_{ros::Time(0)};
 };
 
 #endif

@@ -26,12 +26,6 @@ LocalizationNode::LocalizationNode(ros::NodeHandle nh)
     icp_ = std::make_shared<ICPPointToPoint>(max_correspondence_dist, num_iterations, mean_accepted_error, transformation_epsilon);
     icp_->setDebugMode(debug_);
 
-    // Init the Stochastic Filter object
-    const std::size_t filter_queue_size = 4;
-    const float z_score_threshold = 3.0f;
-    coarse_pose_filter_ = std::make_shared<StochasticFilter>(filter_queue_size, z_score_threshold);
-    fine_pose_filter_ = std::make_shared<StochasticFilter>(filter_queue_size, z_score_threshold);
-
     // Reference transforms
     map_T_sensor_ = Eigen::Matrix4f::Identity();
     odom_T_sensor_previous_ = Eigen::Matrix4f::Identity();
@@ -172,6 +166,22 @@ void LocalizationNode::computePoseGainsFromCovarianceMatrices(const sensor_msgs:
     gps_gain = odom_weight / total_det;
 }
 
+void LocalizationNode::velocityFilter(Eigen::Matrix4f& pose,
+                                      const Eigen::Matrix4f& previous_pose,
+                                      const float time_diff) const
+{
+    // Calculate the velocity
+    const Eigen::Vector3f t = pose.block<3, 1>(0, 3) - previous_pose.block<3, 1>(0, 3);
+    const Eigen::Vector3f velocity_vector = t/time_diff;
+    // If the velocity is too high, filter it to velocity max
+    const float velocity_max = 1.6f; // [m/s]
+    const float velocity_value = velocity_vector.norm();
+    if (velocity_value > velocity_max)
+    {
+        pose.block<3, 1>(0, 3) = previous_pose.block<3, 1>(0, 3) + velocity_max/velocity_value*t;
+    }
+}
+
 void LocalizationNode::initializePosesWithFirstReading(const sensor_msgs::NavSatFix::ConstPtr& gps_msg,
                                                     const nav_msgs::Odometry::ConstPtr& odom_msg)
 {
@@ -273,6 +283,7 @@ void LocalizationNode::localizationCallback(const sensor_msgs::PointCloud2::Cons
     if (first_time_)
     {
         initializePosesWithFirstReading(gps_msg, odom_msg);
+        previous_odom_stamp_ = odom_msg->header.stamp;
         first_time_ = false;
         return;
     }
@@ -310,6 +321,9 @@ void LocalizationNode::localizationCallback(const sensor_msgs::PointCloud2::Cons
     }
     
     ///////////////////////////////////////// FINE ALIGNMENT /////////////////////////////////////////
+    // Timestamp difference from last messages to apply filters
+    const float time_diff = (odom_msg->header.stamp - previous_odom_stamp_).toSec();
+
     // Obtain the odometry prediction for the pose both in map and odom frames
     Eigen::Matrix4f odom_T_sensor_current;
     Eigen::Matrix4f map_T_sensor_odom;
@@ -322,21 +336,19 @@ void LocalizationNode::localizationCallback(const sensor_msgs::PointCloud2::Cons
     float gps_compass_gain, odometry_gain;
     computePoseGainsFromCovarianceMatrices(gps_msg, odom_msg, odometry_gain, gps_compass_gain, false);
     Eigen::Matrix4f map_T_sensor_prior = odometry_gain*map_T_sensor_odom + gps_compass_gain*map_T_sensor_gps;
-    // // Filter out the coarse pose to avoid sudden changes
-    // coarse_pose_filter_->addPoseToQueue(map_T_sensor_prior);
-    // map_T_sensor_prior = coarse_pose_filter_->applyGaussianFilterToCurrentPose(map_T_sensor_, map_T_sensor_prior);
+    velocityFilter(map_T_sensor_prior, map_T_sensor_, time_diff);
     
-    // Align the point clouds with ICP to obtain the relative transformation
+    // Align the point clouds with ICP (will return transformation in map frame)
     icp_->setSourcePointCloud(cropped_scan_cloud);
     icp_->setInitialTransformation(map_T_sensor_prior);
     const auto icp_result = icp_->calculateAlignment();
-    // Filter out the fine pose to avoid sudden changes
-    // fine_pose_filter_->addPoseToQueue(map_T_sensor_prior);
-    // map_T_sensor_ = fine_pose_filter_->applyGaussianFilterToCurrentPose(map_T_sensor_, icp_result.transformation);
-    map_T_sensor_ = icp_result.transformation;
+    // Filter the ICP output based on velocity before updating the sensor pose in map frame
+    Eigen::Matrix4f map_T_sensor_fine = icp_result.transformation;
+    velocityFilter(map_T_sensor_fine, map_T_sensor_, time_diff);
 
-    // Update the transformation in odom frame
+    // Update the transformation in odom frame and timestamp
     odom_T_sensor_previous_ = odom_T_sensor_current;
+    previous_odom_stamp_ = odom_msg->header.stamp;
 
     // Publish the localized pose in map frame
     map_T_sensor_pub_.publish(buildNavOdomMsg(map_T_sensor_, "map", "sensor", odom_msg->header.stamp));
