@@ -165,11 +165,16 @@ bool GlobalMapFramesManager::filterBadReadings(std::vector<Eigen::Vector3d> &odo
     std::vector<std::pair<Eigen::Vector3d, float>> latlonalt_yaw_filtered;
     for (size_t i = 0; i < odom_positions.size(); ++i)
     {
-        if (odom_positions[i].head<2>().norm() < 0.1 && latlonalt_yaw[i].first.z() > 0)
+        if (latlonalt_yaw[i].first.z() < 0)
         {
-            odom_positions_filtered.push_back(odom_positions[i]);
-            latlonalt_yaw_filtered.push_back(latlonalt_yaw[i]);
+            continue;
         }
+        if (odom_positions[i].head<2>().norm() > 0.1)
+        {
+            break;
+        }
+        odom_positions_filtered.push_back(odom_positions[i]);
+        latlonalt_yaw_filtered.push_back(latlonalt_yaw[i]);
     }
 
     // Update the vectors
