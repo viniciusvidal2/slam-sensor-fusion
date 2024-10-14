@@ -3,11 +3,17 @@
 MapDataSaver::MapDataSaver(ros::NodeHandle& nh)
 {
     // Parameters
-    nh.getParam("map_data_path", folder_save_path_);
-    nh.getParam("enable_debug", debug_);
-    
+    ros::NodeHandle pnh("~");
+    pnh.param("/debug/enable", debug_, false);
+    pnh.param("/map_data/save_relative_path", folder_save_path_, static_cast<std::string>("Desktop/map_data"));
+    pnh.param("/map_data/map_name", cloud_save_interval_, 10);
+    pnh.param("/mapping/cloud_save_interval", cloud_save_interval_, 10);
+    pnh.param("/mapping/min_counter_to_account_for_velocity", min_counter_to_account_for_velocity_, 100);
+    pnh.param("/mapping/min_velocity_to_count_as_movement", min_velocity_to_count_as_movement_, 0.1f);
+
     // Create a folder, making sure it does not exist before
     // If it exists, delete it and create it again
+    folder_save_path_ = std::string(std::getenv("HOME")) + "/" + folder_save_path_;
     if (FileManipulation::directoryExists(folder_save_path_))
     {
         std::string command = "rm -rf " + folder_save_path_;
@@ -69,8 +75,27 @@ void MapDataSaver::mappingCallback(const sensor_msgs::PointCloud2::ConstPtr& poi
     *cloud_map_frame_ += *cloud;
     ++cloud_counter_;
 
-    // Save the point cloud tile if the counter reaches the save rate
-    if (cloud_counter_ % cloud_save_rate_ == 0)
+    // Calculate velocity
+    const Eigen::Vector3f current_position(odom_msg->pose.pose.position.x,
+                                           odom_msg->pose.pose.position.y,
+                                           odom_msg->pose.pose.position.z);
+    const Eigen::Vector3f previous_position(last_odom_.pose.pose.position.x,
+                                            last_odom_.pose.pose.position.y,
+                                            last_odom_.pose.pose.position.z);
+    const float dt = (odom_msg->header.stamp - last_odom_.header.stamp).toSec();
+    const float velocity = (current_position - previous_position).norm() / dt;
+    last_odom_ = *odom_msg;
+
+    // Do not save if conditions are not met
+    if (cloud_counter_ > min_counter_to_account_for_velocity_ &&
+        velocity < min_velocity_to_count_as_movement_)
+    {
+        ROS_WARN("Velocity is too low to save the map. Velocity: %f", velocity);
+        return;
+    }
+
+    // Save the point cloud tile if the counter reaches the save interval
+    if (cloud_counter_ % cloud_save_interval_ == 0)
     {
         std::string cloud_file_path = folder_save_path_ + "/cloud_" + std::to_string(cloud_counter_) + ".pcd";
         pcl::io::savePCDFileBinary(cloud_file_path, *cloud_map_frame_);

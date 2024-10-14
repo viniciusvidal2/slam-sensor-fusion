@@ -1,11 +1,7 @@
 <launch>
-  <!-- Declare arguments -->
-  <arg name="map_data_path" default="$(env HOME)/Desktop/map_data" />
-  <arg name="enable_debug" default="false" />
+    <!-- Load the YAML file with parameters -->
+    <rosparam command="load" file="$(find mapping)/config/params.yaml"/>
 
   <!-- Launch the localization node -->
-  <node pkg="mapping" type="map_data_save_node" name="mapping_node" output="screen">
-    <param name="map_data_path" value="$(arg map_data_path)" />
-    <param name="enable_debug" value="$(arg enable_debug)" />
-  </node>
+  <node pkg="mapping" type="map_data_save_node" name="mapping_node" output="screen"/>
 </launch>

@@ -75,8 +75,11 @@ private:
 
     ///@brief Point cloud to save the map in tiles
     int cloud_counter_{0};
-    constexpr static int cloud_save_rate_{10};
+    int cloud_save_interval_{10};
+    int min_counter_to_account_for_velocity_{100};
+    float min_velocity_to_count_as_movement_{0.1f}; // [m/s]
     pcl::PointCloud<PointT>::Ptr cloud_map_frame_;
+    nav_msgs::Odometry last_odom_;
 
     /// @brief Yaw angle from compass
     double current_compass_yaw_{0.0}; // -M_PI to M_PI [RAD]

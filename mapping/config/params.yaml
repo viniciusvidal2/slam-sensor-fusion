@@ -1,0 +1,11 @@
+map_data:
+  save_relative_path: "Desktop/map_data"
+  map_name: "map"
+
+debug:
+  enable: true
+
+mapping:
+  cloud_save_interval: 10
+  min_counter_to_account_for_velocity: 100
+  min_velocity_to_count_as_movement: 0.1
