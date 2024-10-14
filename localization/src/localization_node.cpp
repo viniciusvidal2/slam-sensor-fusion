@@ -351,6 +351,7 @@ void LocalizationNode::localizationCallback(const sensor_msgs::PointCloud2::Cons
     // Filter the ICP output based on velocity before updating the sensor pose in map frame
     Eigen::Matrix4f map_T_sensor_fine = icp_result.transformation;
     velocityFilter(map_T_sensor_fine, map_T_sensor_, time_diff);
+    map_T_sensor_ = map_T_sensor_fine;
 
     // Update the transformation in odom frame and timestamp
     odom_T_sensor_previous_ = odom_T_sensor_current;
