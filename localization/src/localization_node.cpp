@@ -26,6 +26,11 @@ LocalizationNode::LocalizationNode(ros::NodeHandle nh)
     map_cloud_ = global_map_frames_manager_->getMapCloud(map_voxel_size_);
     applyUniformSubsample(map_cloud_, 3);
     map_T_global_ = global_map_frames_manager_->getMapTGlobal();
+    if (map_T_global_ == Eigen::Matrix4d::Identity())
+    {
+        ROS_ERROR("Could not get the map_T_global transformation, exiting.");
+        return;
+    }
 
     // Init the ICP object to compute Point to Point alignment
     icp_ = std::make_shared<ICPPointToPoint>(icp_max_correspondence_dist_, icp_iterations_, 
