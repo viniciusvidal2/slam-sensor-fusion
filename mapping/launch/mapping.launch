@@ -1,6 +1,11 @@
 <launch>
-    <!-- Load the YAML file with parameters -->
-    <rosparam command="load" file="$(find mapping)/config/params.yaml"/>
+  <!-- FAST LIO for lidar odometry -->
+  <include file="$(find fast_lio)/launch/mapping_mid360.launch">
+      <arg name="rviz" value="false"/>
+  </include>
+
+  <!-- Load the YAML file with parameters -->
+  <rosparam command="load" file="$(find mapping)/config/params.yaml"/>
 
   <!-- Launch the localization node -->
   <node pkg="mapping" type="map_data_save_node" name="mapping_node" output="screen"/>
