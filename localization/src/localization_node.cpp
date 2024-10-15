@@ -24,6 +24,11 @@ LocalizationNode::LocalizationNode(ros::NodeHandle nh)
                                                                         map_name_, 
                                                                         static_cast<std::size_t>(max_map_optimization_poses_));
     map_cloud_ = global_map_frames_manager_->getMapCloud(map_voxel_size_);
+    if (map_cloud_->empty())
+    {
+        ROS_ERROR("Could not get the map point cloud, exiting.");
+        return;
+    }
     applyUniformSubsample(map_cloud_, 3);
     map_T_global_ = global_map_frames_manager_->getMapTGlobal();
     if (map_T_global_ == Eigen::Matrix4d::Identity())

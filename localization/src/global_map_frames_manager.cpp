@@ -135,7 +135,14 @@ pcl::PointCloud<PointT>::Ptr GlobalMapFramesManager::mergeScansAndSave(const flo
     }
     else
     {
-        perror("Could not open DATA directory");
+        auto error_msg = "Could not open " + data_folder_ + " directory";
+        perror(error_msg.c_str());
+        return map_cloud;
+    }
+
+    if (map_cloud->empty())
+    {
+        std::cerr << "Error: no point clouds to merge!" << std::endl;
         return map_cloud;
     }
 
