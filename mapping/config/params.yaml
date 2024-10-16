@@ -1,9 +1,9 @@
 map_data:
-  save_relative_path: "Desktop/map_data"
+  save_relative_path: "maps"
   map_name: "map"
 
 debug:
-  enable: true
+  enable: false
 
 mapping:
   cloud_save_interval: 10
