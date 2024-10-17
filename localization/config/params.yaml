@@ -9,7 +9,7 @@ map_data:
   ref_frame_distance: 3.0 # [m]
 
 icp:
-  num_iterations: 16
+  num_iterations: 10
   transformation_epsilon: 1e-8
   max_correspondence_distance: 0.5 # [m]
   mean_accepted_error: 0.05 # [m]
