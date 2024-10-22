@@ -4,9 +4,10 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
+        - /Map1
         - /GPS in map frame1/Shape1
       Splitter Ratio: 0.5185185074806213
-    Tree Height: 363
+    Tree Height: 746
   - Class: rviz/Selection
     Name: Selection
   - Class: rviz/Tool Properties
@@ -89,7 +90,7 @@ Visualization Manager:
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
-    - Alpha: 1
+    - Alpha: 0.699999988079071
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
         Max Value: 10
@@ -110,7 +111,7 @@ Visualization Manager:
       Queue Size: 10
       Selectable: true
       Size (Pixels): 3
-      Size (m): 0.009999999776482582
+      Size (m): 0.029999999329447746
       Style: Flat Squares
       Topic: /localization/map
       Unreliable: false
@@ -285,7 +286,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 29.156726837158203
+      Distance: 28.659137725830078
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -293,17 +294,17 @@ Visualization Manager:
         Value: false
       Field of View: 0.7853981852531433
       Focal Point:
-        X: 8.655200004577637
-        Y: -10.044919967651367
-        Z: -7.258518695831299
+        X: 16.208057403564453
+        Y: 0.396257609128952
+        Z: -5.235265731811523
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.8003978729248047
+      Pitch: 0.6703979969024658
       Target Frame: <Fixed Frame>
-      Yaw: 2.005401372909546
+      Yaw: 2.2854037284851074
     Saved: ~
 Window Geometry:
   Displays:
