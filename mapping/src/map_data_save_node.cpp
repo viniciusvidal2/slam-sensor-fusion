@@ -16,7 +16,7 @@ MapDataSaver::MapDataSaver(ros::NodeHandle& nh)
     folder_save_path_ = std::string(std::getenv("HOME")) + "/" + folder_save_path_;
     if (FileManipulation::directoryExists(folder_save_path_))
     {
-        std::string command = "rm -rf " + folder_save_path_;
+        std::string command = "rm -rf " + folder_save_path_ + "/*";
         if(!system(command.c_str()))
         {
             ROS_WARN("Reseting folder %s to store new mapping data!", folder_save_path_.c_str());

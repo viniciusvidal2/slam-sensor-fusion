@@ -2,7 +2,7 @@ debug:
   enable: false
 
 map_data:
-  home_relative_path: "/maps"
+  home_relative_path: "/maps/map_1"
   name: "map"
   max_map_optimization_poses: 50
   voxel_resolution: 0.1 # [m]

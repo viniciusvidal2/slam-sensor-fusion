@@ -1,5 +1,5 @@
 map_data:
-  save_relative_path: "maps"
+  save_relative_path: "maps/map_1"
   map_name: "map"
 
 debug:
