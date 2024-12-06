@@ -39,22 +39,28 @@ include_directories(
   ${PCL_INCLUDE_DIRS}
 )
 
-# Declare the executable target
-add_executable(localization_node src/main.cpp 
+add_executable(localization_node src/localization_main.cpp 
               src/localization_node.cpp
               src/global_map_frames_manager.cpp
               src/icp_point_to_point.cpp
               src/stochastic_filter.cpp
               src/brute_force_alignment.cpp)              
-
-# Link the executable with the required libraries
 target_link_libraries(localization_node
   ${catkin_LIBRARIES}
   ${PCL_LIBRARIES}
 )
-
-# Install the executable
 install(TARGETS localization_node
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+add_executable(obstacle_generator_node src/obstacle_point_cloud_generator_main.cpp 
+              src/obstacle_point_cloud_generator_node.cpp
+              src/global_map_frames_manager.cpp)              
+target_link_libraries(obstacle_generator_node
+  ${catkin_LIBRARIES}
+  ${PCL_LIBRARIES}
+)
+install(TARGETS obstacle_generator_node
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
