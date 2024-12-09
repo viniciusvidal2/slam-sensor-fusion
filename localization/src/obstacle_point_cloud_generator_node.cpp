@@ -20,14 +20,15 @@ ObstaclePointCloudGeneratorNode::ObstaclePointCloudGeneratorNode(ros::NodeHandle
         ROS_ERROR("Could not get the map point cloud, exiting.");
         return;
     }
-    applyUniformSubsample(map_cloud_, 3);
 
     // Initialize the kdtree with the map point cloud
     map_kdtree_ = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>);
     map_kdtree_->setInputCloud(map_cloud_);
 
-    // Create the publisher
+    // Create the publishers
     obstacles_lidar_frame_point_cloud_pub_ = nh.advertise<sensor_msgs::PointCloud2>("/localization/obstacle_ptc_lidar_frame", 10);
+    obstacles_map_frame_point_cloud_pub_ = nh.advertise<sensor_msgs::PointCloud2>("/localization/obstacle_ptc_map_frame", 10);
+    map_point_cloud_pub_ = nh.advertise<sensor_msgs::PointCloud2>("/localization/obstacle_search_map", 10);
     
     // Initialize synchronized subscribers
     pointcloud_sub_.subscribe(nh, "/cloud_registered_body", 3);
@@ -64,39 +65,41 @@ void ObstaclePointCloudGeneratorNode::scanCallback(const sensor_msgs::PointCloud
     // Crop the input scan around the sensor frame origin
     pcl::PointCloud<PointT>::Ptr cropped_scan_cloud_lidar_frame = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
     cropPointCloudThroughRadius(Eigen::Matrix4f::Identity(), scan_crop_radius_, scan_cloud_lidar_frame, cropped_scan_cloud_lidar_frame);
+    if (debug_)
+    {
+        ROS_INFO("Scan point cloud cropped with %zu points to assess for obstacles.", cropped_scan_cloud_lidar_frame->size());
+    }
 
     // Transform the cropped scan to the map frame
     pcl::PointCloud<PointT>::Ptr scan_cloud_map_frame = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
     pcl::transformPointCloud(*cropped_scan_cloud_lidar_frame, *scan_cloud_map_frame, map_T_lidar);
 
     ///////////////////////////////////////// OBSTACLES SEARCH /////////////////////////////////////////
-    // Indices vector for obstacle points
-    std::vector<int> obstacle_indices;
-
+    pcl::PointCloud<PointT>::Ptr obstacle_cloud_lidar_frame = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
     // Search for obstacles in the map
-    for (const auto& point : scan_cloud_map_frame->points)
+    for (std::size_t i = 0; i < scan_cloud_map_frame->size(); ++i)
     {
         // Search for the nearest point in the map
         std::vector<int> point_idx(1);
         std::vector<float> point_squared_distance(1);
-        map_kdtree_->nearestKSearch(point, 1, point_idx, point_squared_distance);
+        map_kdtree_->nearestKSearch(scan_cloud_map_frame->at(i), 1, point_idx, point_squared_distance);
 
-        // Check if the point is an obstacle
-        if (point_squared_distance[0] > 3*map_voxel_size_*map_voxel_size_)
+        // Add if the point is an obstacle
+        if (point_squared_distance[0] > 3*map_voxel_size_)
         {
-            obstacle_indices.push_back(point_idx[0]);
+            obstacle_cloud_lidar_frame->push_back(cropped_scan_cloud_lidar_frame->at(i));
         }
     }
+    if (obstacle_cloud_lidar_frame->empty())
+    {
+        if (debug_)
+        {
+            ROS_WARN("No obstacles found in the current scan.");
+        }
+        return;
+    }
 
-    // Extract the obstacle points from the current scan in lidar frame
-    pcl::PointCloud<PointT>::Ptr obstacle_cloud_lidar_frame = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
-    pcl::ExtractIndices<PointT> extract;
-    pcl::PointIndices::Ptr obstacle_indices_ptr = pcl::PointIndices::Ptr(new pcl::PointIndices);
-    obstacle_indices_ptr->indices = obstacle_indices;
-    extract.setInputCloud(cropped_scan_cloud_lidar_frame);
-    extract.setIndices(obstacle_indices_ptr);
-    extract.filter(*obstacle_cloud_lidar_frame);
-
+    ///////////////////////////////////////// POINT CLOUD PUBLISHING /////////////////////////////////////////
     // Publish the obstacle point cloud
     sensor_msgs::PointCloud2 obstacle_cloud_msg;
     pcl::toROSMsg(*obstacle_cloud_lidar_frame, obstacle_cloud_msg);
@@ -111,5 +114,19 @@ void ObstaclePointCloudGeneratorNode::scanCallback(const sensor_msgs::PointCloud
         auto end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> elapsed = end - start;
         ROS_INFO("Obstacle generator callback took %f seconds", elapsed.count());
+        // Transform the cloud to the map frame and publish
+        pcl::PointCloud<PointT>::Ptr obstacle_cloud_map_frame = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
+        pcl::transformPointCloud(*obstacle_cloud_lidar_frame, *obstacle_cloud_map_frame, map_T_lidar);
+        sensor_msgs::PointCloud2 obstacle_cloud_map_msg;
+        pcl::toROSMsg(*obstacle_cloud_map_frame, obstacle_cloud_map_msg);
+        obstacle_cloud_map_msg.header.frame_id = "map";
+        obstacle_cloud_map_msg.header.stamp = scan_msg->header.stamp;
+        obstacles_map_frame_point_cloud_pub_.publish(obstacle_cloud_map_msg);
+        // Publish the map point cloud
+        sensor_msgs::PointCloud2 map_cloud_msg;
+        pcl::toROSMsg(*map_cloud_, map_cloud_msg);
+        map_cloud_msg.header.frame_id = "map";
+        map_cloud_msg.header.stamp = scan_msg->header.stamp;
+        map_point_cloud_pub_.publish(map_cloud_msg);
     }
 }

@@ -12,4 +12,7 @@
 
   <!-- Launch the localization node -->
   <node pkg="localization" type="localization_node" name="localization_node" output="screen"/>
+
+  <!-- Launch the obstacle point cloud generator node -->
+  <node pkg="localization" type="obstacle_generator_node" name="obstacle_generator_node" output="screen"/>
 </launch>

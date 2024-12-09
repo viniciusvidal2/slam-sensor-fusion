@@ -61,6 +61,8 @@ private:
 
     /// @brief Publishers
     ros::Publisher obstacles_lidar_frame_point_cloud_pub_;
+    ros::Publisher obstacles_map_frame_point_cloud_pub_;
+    ros::Publisher map_point_cloud_pub_;
 
     /// @brief Global frame manager object
     std::shared_ptr<GlobalMapFramesManager> global_map_frames_manager_;
