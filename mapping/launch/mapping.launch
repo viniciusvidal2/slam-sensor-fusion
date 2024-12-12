@@ -9,7 +9,8 @@
   <!-- Load the YAML file with parameters -->
   <rosparam command="load" file="$(find mapping)/config/params.yaml"/>
   <param name="map_data/save_relative_path" value="maps/$(arg map_name)"/>
+  <rosparam command="load" file="$(find vehicle_params)/config/params.yaml"/>
 
-  <!-- Launch the localization node -->
+  <!-- Launch the mapping node -->
   <node pkg="mapping" type="map_data_save_node" name="mapping_node" output="screen"/>
 </launch>
