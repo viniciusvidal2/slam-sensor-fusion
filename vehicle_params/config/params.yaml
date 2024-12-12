@@ -1,0 +1,20 @@
+lidar_extrinsics:
+  # Vehicle has body frame and lidar has livox_frame
+  # Body frame: X forward, Y left, Z up
+  # Livox frame: X forward, Y right, Z up
+  lidar_frame: "livox_frame"
+  vehicle_frame: "body"
+  # Parameters from lidar frame to vehicle frame
+  x_lidar_vehicle: 0.0
+  y_lidar_vehicle: 0.0
+  z_lidar_vehicle: 0.0
+  roll_lidar_vehicle: 180.0
+  pitch_lidar_vehicle: 0.0
+  yaw_lidar_vehicle: 0.0
+
+# Vehicle dimensions in vehicle frame that should be filtered out
+vehicle_region_box:
+  width: 0.60 # meters
+  length: 0.60 # meters
+  height: 0.90 # meters
+  
