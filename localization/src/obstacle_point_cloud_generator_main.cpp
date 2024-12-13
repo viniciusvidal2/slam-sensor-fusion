@@ -11,7 +11,7 @@
 
 #include "localization/obstacle_point_cloud_generator_node.h"
 
-int main(int argc, char * argv[])
+int main(int argc, char *argv[])
 {
     ros::init(argc, argv, "obstacle_point_cloud_generator_node");
     ros::NodeHandle nh;

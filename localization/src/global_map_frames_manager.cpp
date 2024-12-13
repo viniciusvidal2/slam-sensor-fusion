@@ -62,7 +62,7 @@ std::vector<std::pair<Eigen::Vector3d, float>> GlobalMapFramesManager::loadGloba
             gps_altitude_table_.push_back(latlonalt);
         }
     }
-    
+
     return latlonalt_yaw;
 }
 
@@ -86,7 +86,7 @@ float GlobalMapFramesManager::getClosestAltitude(const double lat, const double 
             match_altitude = latlonalt.z();
         }
     }
-    
+
     return match_altitude;
 }
 
@@ -158,7 +158,7 @@ pcl::PointCloud<PointT>::Ptr GlobalMapFramesManager::mergeScansAndSave(const flo
 }
 
 bool GlobalMapFramesManager::filterBadReadings(std::vector<Eigen::Vector3d> &odom_positions,
-                                              std::vector<std::pair<Eigen::Vector3d, float>> &latlonalt_yaw) const
+                                               std::vector<std::pair<Eigen::Vector3d, float>> &latlonalt_yaw) const
 {
     // Check if the sizes of the vectors are the same
     if (odom_positions.size() != latlonalt_yaw.size())
@@ -234,7 +234,7 @@ Eigen::Matrix4d GlobalMapFramesManager::computeMapTGlobal(const std::vector<Eige
 
     // Compute mean global translation vector by converting each data to UTM and averaging
     Eigen::Vector3d global_t_map(0.0, 0.0, 0.0);
-    for (const auto& llalt : latlonalt)
+    for (const auto &llalt : latlonalt)
     {
         double utm_northing, utm_easting;
         UTM::LLtoUTM(llalt.x(), llalt.y(), utm_northing, utm_easting);
@@ -244,7 +244,7 @@ Eigen::Matrix4d GlobalMapFramesManager::computeMapTGlobal(const std::vector<Eige
 
     // Compute the average RPY from the compass
     double compass_yaw_avg = 0;
-    for (const auto& yaw : compass_yaw)
+    for (const auto &yaw : compass_yaw)
     {
         compass_yaw_avg += static_cast<double>(yaw);
     }

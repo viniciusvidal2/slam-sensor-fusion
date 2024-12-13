@@ -82,7 +82,7 @@ private:
     /// @param latlonalt_yaw The latitude, longitude, altitude and yaw vectors
     /// @return True if the filtering was successful
     bool filterBadReadings(std::vector<Eigen::Vector3d> &odom_positions,
-                        std::vector<std::pair<Eigen::Vector3d, float>> &latlonalt_yaw) const;
+                           std::vector<std::pair<Eigen::Vector3d, float>> &latlonalt_yaw) const;
 
     /// @brief Data folder where the map data is stored
     std::string data_folder_, map_name_;

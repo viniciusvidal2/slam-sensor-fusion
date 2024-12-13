@@ -9,7 +9,7 @@
 #include <memory>
 #include <functional>
 #include <signal.h>
-#include <cstdlib> 
+#include <cstdlib>
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -46,13 +46,14 @@ private:
     /// @brief Callback for the localization node
     /// @param scan_msg The current scan message
     /// @param pose_msg The localized pose message
-    void scanCallback(const sensor_msgs::PointCloud2::ConstPtr& scan_msg,
-                      const nav_msgs::Odometry::ConstPtr& pose_msg);
-    
+    void scanCallback(const sensor_msgs::PointCloud2::ConstPtr &scan_msg,
+                      const nav_msgs::Odometry::ConstPtr &pose_msg);
+
     // Synchronizer policy
     typedef message_filters::sync_policies::ApproximateTime<
         sensor_msgs::PointCloud2,
-        nav_msgs::Odometry> SyncPolicy;
+        nav_msgs::Odometry>
+        SyncPolicy;
 
     // Subscribers and synchronizer
     message_filters::Subscriber<sensor_msgs::PointCloud2> pointcloud_sub_;

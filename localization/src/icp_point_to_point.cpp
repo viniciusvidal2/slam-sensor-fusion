@@ -54,7 +54,7 @@ void ICPPointToPoint::setTargetPointCloud(const pcl::PointCloud<PointT>::Ptr &ta
     kdtree_.setInputCloud(target_cloud);
 }
 
-bool ICPPointToPoint::sourceTargetCorrespondences(Eigen::MatrixX3f& source_cloud, Eigen::MatrixX3f& target_cloud) const
+bool ICPPointToPoint::sourceTargetCorrespondences(Eigen::MatrixX3f &source_cloud, Eigen::MatrixX3f &target_cloud) const
 {
     // Init correspondences
     std::vector<std::pair<Eigen::Vector3f, PointT>> correspondences;
@@ -65,8 +65,8 @@ bool ICPPointToPoint::sourceTargetCorrespondences(Eigen::MatrixX3f& source_cloud
     {
         std::vector<int> kdtree_point_indices(1);
         std::vector<float> kdtree_point_distances(1);
-        kdtree_.nearestKSearch(PointT(source_cloud(i, 0), source_cloud(i, 1), source_cloud(i, 2)), 
-                                1, kdtree_point_indices, kdtree_point_distances);
+        kdtree_.nearestKSearch(PointT(source_cloud(i, 0), source_cloud(i, 1), source_cloud(i, 2)),
+                               1, kdtree_point_indices, kdtree_point_distances);
         if (!kdtree_point_indices.empty() && kdtree_point_distances[0] < max_correspondence_dist_)
         {
             correspondences.emplace_back(std::make_pair(source_cloud.row(i), target_cloud_pcl_.points[kdtree_point_indices[0]]));
@@ -117,8 +117,8 @@ inline void ICPPointToPoint::applyTransformation(const Eigen::Matrix4f &T, Eigen
     }
 }
 
-Eigen::Matrix4f ICPPointToPoint::calculateStepBestTransformation(const Eigen::MatrixX3f &source_cloud, 
-                                                                const Eigen::MatrixX3f &target_cloud) const
+Eigen::Matrix4f ICPPointToPoint::calculateStepBestTransformation(const Eigen::MatrixX3f &source_cloud,
+                                                                 const Eigen::MatrixX3f &target_cloud) const
 {
     // Step 1: Compute centroids
     Eigen::Vector3f centroid_source(0, 0, 0), centroid_target(0, 0, 0);
@@ -137,7 +137,7 @@ Eigen::Matrix4f ICPPointToPoint::calculateStepBestTransformation(const Eigen::Ma
         source_zero_mean.row(i) = source_cloud.row(i) - centroid_source.transpose();
         target_zero_mean.row(i) = target_cloud.row(i) - centroid_target.transpose();
     }
-    
+
     // Step 3: Compute covariance matrix
     Eigen::Matrix3f H = source_zero_mean.transpose() * target_zero_mean;
 
@@ -150,7 +150,7 @@ Eigen::Matrix4f ICPPointToPoint::calculateStepBestTransformation(const Eigen::Ma
     Eigen::Matrix3f R_step = V * U.transpose();
 
     // Handle special reflection case (det(R) = -1)
-    if (R_step.determinant() < 0) 
+    if (R_step.determinant() < 0)
     {
         V.col(2) *= -1;
         R_step = V * U.transpose();
@@ -174,7 +174,7 @@ inline float ICPPointToPoint::calculateErrorMetric(const Eigen::MatrixX3f &sourc
         error += (source_cloud.row(i) - target_cloud.row(i)).norm();
     }
 
-    return error/source_cloud.rows();
+    return error / source_cloud.rows();
 }
 
 inline void ICPPointToPoint::printStepDebug(const int i, const float error) const
@@ -194,7 +194,7 @@ ICPResult ICPPointToPoint::calculateAlignment()
 {
     // The output result struct
     ICPResult icp_result(initial_transform_);
-    
+
     // Apply transformation to the source cloud
     Eigen::MatrixX3f transformed_source_cloud(source_cloud_);
     applyTransformation(initial_transform_, transformed_source_cloud);
@@ -244,7 +244,8 @@ ICPResult ICPPointToPoint::calculateAlignment()
         }
         std::cout << "[ICP INFO] Total iterations taken: " << iterations_taken << std::endl;
         std::cout << "[ICP INFO] Final error: " << last_error_ << std::endl;
-        std::cout << "[ICP INFO] Final transformation matrix: " << std::endl << source_T_target << std::endl;
+        std::cout << "[ICP INFO] Final transformation matrix: " << std::endl
+                  << source_T_target << std::endl;
     }
 
     // Fill result struct with data and return

@@ -29,7 +29,7 @@ struct ICPResult
 {
     ICPResult(Eigen::Matrix4f T, float error, int iterations, bool has_converged)
         : transformation(T), error(error), iterations(iterations), has_converged(has_converged) {}
-    ICPResult(Eigen::Matrix4f T): transformation(T) {}
+    ICPResult(Eigen::Matrix4f T) : transformation(T) {}
     ICPResult() {}
 
     Eigen::Matrix4f transformation = Eigen::Matrix4f::Identity();
@@ -90,7 +90,7 @@ private:
     inline Eigen::MatrixX3f convertPclToEigen(const pcl::PointCloud<PointT>::Ptr &cloud) const;
 
     /// @brief Apply the transformation to the cloud
-    /// @param T The transformation matrix 
+    /// @param T The transformation matrix
     /// @param cloud The cloud to transform
     inline void applyTransformation(const Eigen::Matrix4f &T, Eigen::MatrixX3f &cloud) const;
 
@@ -98,7 +98,7 @@ private:
     /// @param source_cloud The source cloud
     /// @param target_cloud The target cloud
     /// @return True if the correspondences were found, false otherwise
-    bool sourceTargetCorrespondences(Eigen::MatrixX3f& source_cloud, Eigen::MatrixX3f& target_cloud) const;
+    bool sourceTargetCorrespondences(Eigen::MatrixX3f &source_cloud, Eigen::MatrixX3f &target_cloud) const;
 
     /// @brief Compute the best transformation from the two clouds
     /// @param source_cloud The source cloud

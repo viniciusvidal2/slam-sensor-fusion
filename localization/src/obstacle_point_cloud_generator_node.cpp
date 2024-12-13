@@ -11,9 +11,9 @@ ObstaclePointCloudGeneratorNode::ObstaclePointCloudGeneratorNode(ros::NodeHandle
     pnh.param("/obstacle_avoidance/scan_crop_radius", scan_crop_radius_, 15.0f);
 
     // Init the map point cloud with the frames manager
-    global_map_frames_manager_ = std::make_shared<GlobalMapFramesManager>(std::string(std::getenv("HOME")) + "/" + relative_folder_path_, 
-                                                                        map_name_, 
-                                                                        50);
+    global_map_frames_manager_ = std::make_shared<GlobalMapFramesManager>(std::string(std::getenv("HOME")) + "/" + relative_folder_path_,
+                                                                          map_name_,
+                                                                          50);
     map_cloud_ = global_map_frames_manager_->getMapCloud(map_voxel_size_);
     if (map_cloud_->empty())
     {
@@ -29,7 +29,7 @@ ObstaclePointCloudGeneratorNode::ObstaclePointCloudGeneratorNode(ros::NodeHandle
     obstacles_lidar_frame_point_cloud_pub_ = nh.advertise<sensor_msgs::PointCloud2>("/localization/obstacle_ptc_lidar_frame", 10);
     obstacles_map_frame_point_cloud_pub_ = nh.advertise<sensor_msgs::PointCloud2>("/localization/obstacle_ptc_map_frame", 10);
     map_point_cloud_pub_ = nh.advertise<sensor_msgs::PointCloud2>("/localization/obstacle_search_map", 10);
-    
+
     // Initialize synchronized subscribers
     pointcloud_sub_.subscribe(nh, "/cloud_registered_body", 3);
     odom_sub_.subscribe(nh, "/localization/map_T_sensor", 3);
@@ -40,22 +40,23 @@ ObstaclePointCloudGeneratorNode::ObstaclePointCloudGeneratorNode(ros::NodeHandle
     ROS_INFO("Obstacle point cloud generator node initialized!");
 }
 
-void ObstaclePointCloudGeneratorNode::scanCallback(const sensor_msgs::PointCloud2::ConstPtr& scan_msg,
-                                                const nav_msgs::Odometry::ConstPtr& pose_msg)
+void ObstaclePointCloudGeneratorNode::scanCallback(const sensor_msgs::PointCloud2::ConstPtr &scan_msg,
+                                                   const nav_msgs::Odometry::ConstPtr &pose_msg)
 {
     ///////////////////////////////////////// PREPROCESSING /////////////////////////////////////////
     // Start timer to measure
     auto start = std::chrono::high_resolution_clock::now();
-    
+
     // Convert the pose message to Eigen matrix
     Eigen::Matrix4f map_T_lidar = Eigen::Matrix4f::Identity();
     map_T_lidar.block<3, 1>(0, 3) = Eigen::Vector3f(pose_msg->pose.pose.position.x,
                                                     pose_msg->pose.pose.position.y,
                                                     pose_msg->pose.pose.position.z);
     map_T_lidar.block<3, 3>(0, 0) = Eigen::Quaternionf(pose_msg->pose.pose.orientation.w,
-                                                    pose_msg->pose.pose.orientation.x,
-                                                    pose_msg->pose.pose.orientation.y,
-                                                    pose_msg->pose.pose.orientation.z).toRotationMatrix();
+                                                       pose_msg->pose.pose.orientation.x,
+                                                       pose_msg->pose.pose.orientation.y,
+                                                       pose_msg->pose.pose.orientation.z)
+                                        .toRotationMatrix();
 
     // Convert the incoming point cloud and subsample
     pcl::PointCloud<PointT>::Ptr scan_cloud_lidar_frame = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
@@ -85,7 +86,7 @@ void ObstaclePointCloudGeneratorNode::scanCallback(const sensor_msgs::PointCloud
         map_kdtree_->nearestKSearch(scan_cloud_map_frame->at(i), 1, point_idx, point_squared_distance);
 
         // Add if the point is an obstacle
-        if (point_squared_distance[0] > 3*map_voxel_size_)
+        if (point_squared_distance[0] > 3 * map_voxel_size_)
         {
             obstacle_cloud_lidar_frame->push_back(cropped_scan_cloud_lidar_frame->at(i));
         }

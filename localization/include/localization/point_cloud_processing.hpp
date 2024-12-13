@@ -8,7 +8,7 @@
 #include <memory>
 #include <functional>
 #include <signal.h>
-#include <cstdlib> 
+#include <cstdlib>
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -28,10 +28,10 @@
 
 using PointT = pcl::PointXYZ;
 
-static inline void cropPointCloudThroughRadius(const Eigen::Matrix4f& T,
-                                            const double radius,
-                                            pcl::PointCloud<PointT>::Ptr& cloud,
-                                            pcl::PointCloud<PointT>::Ptr& cropped_cloud)
+static inline void cropPointCloudThroughRadius(const Eigen::Matrix4f &T,
+                                               const double radius,
+                                               pcl::PointCloud<PointT>::Ptr &cloud,
+                                               pcl::PointCloud<PointT>::Ptr &cropped_cloud)
 {
     // Initialize a kdtree with the cloud
     pcl::search::KdTree<PointT>::Ptr kdtree(new pcl::search::KdTree<PointT>);
@@ -52,8 +52,8 @@ static inline void cropPointCloudThroughRadius(const Eigen::Matrix4f& T,
     extract.filter(*cropped_cloud);
 }
 
-static inline void applyUniformSubsample(pcl::PointCloud<PointT>::Ptr& cloud, 
-                                        const std::size_t point_step)
+static inline void applyUniformSubsample(pcl::PointCloud<PointT>::Ptr &cloud,
+                                         const std::size_t point_step)
 {
     if (cloud->points.size() < point_step)
     {
@@ -61,7 +61,7 @@ static inline void applyUniformSubsample(pcl::PointCloud<PointT>::Ptr& cloud,
     }
 
     pcl::PointIndices::Ptr indices(new pcl::PointIndices);
-    indices->indices.reserve(cloud->size()/point_step);
+    indices->indices.reserve(cloud->size() / point_step);
     for (std::size_t i = 0; i < cloud->size(); i += point_step)
     {
         indices->indices.emplace_back(i);
@@ -73,7 +73,7 @@ static inline void applyUniformSubsample(pcl::PointCloud<PointT>::Ptr& cloud,
     extract.filter(*cloud);
 }
 
-static inline void removeFloor(pcl::PointCloud<PointT>::Ptr& cloud)
+static inline void removeFloor(pcl::PointCloud<PointT>::Ptr &cloud)
 {
     // Remove points lower than 0 in Z
     pcl::PointIndices::Ptr indices(new pcl::PointIndices);
