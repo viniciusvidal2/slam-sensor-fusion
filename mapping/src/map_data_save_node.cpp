@@ -11,7 +11,7 @@ MapDataSaver::MapDataSaver(ros::NodeHandle &nh)
     pnh.param("/mapping/min_counter_to_account_for_velocity", min_counter_to_account_for_velocity_, 100);
     pnh.param("/mapping/min_velocity_to_count_as_movement", min_velocity_to_count_as_movement_, 0.1f);
 
-    // Vehicle extrinsics and box region filter params
+    // Vehicle extrinsics params
     float vehicle_x_lidar, vehicle_y_lidar, vehicle_z_lidar;
     float vehicle_roll_lidar, vehicle_pitch_lidar, vehicle_yaw_lidar;
     pnh.param("/lidar_extrinsics/x_lidar_vehicle", vehicle_x_lidar, 0.0f);

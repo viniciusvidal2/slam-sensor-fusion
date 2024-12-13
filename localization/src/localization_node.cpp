@@ -19,10 +19,30 @@ LocalizationNode::LocalizationNode(ros::NodeHandle nh)
     pnh.param("/pose_gains_calculation/odom_fixed_gain", odom_fixed_gain_, 0.95f);
     pnh.param("/pose_gains_calculation/gps_fixed_gain", gps_fixed_gain_, 0.05f);
 
+    // Vehicle extrinsics params
+    float vehicle_x_lidar, vehicle_y_lidar, vehicle_z_lidar;
+    float vehicle_roll_lidar, vehicle_pitch_lidar, vehicle_yaw_lidar;
+    pnh.param("/lidar_extrinsics/x_lidar_vehicle", vehicle_x_lidar, 0.0f);
+    pnh.param("/lidar_extrinsics/y_lidar_vehicle", vehicle_y_lidar, 0.0f);
+    pnh.param("/lidar_extrinsics/z_lidar_vehicle", vehicle_z_lidar, 0.0f);
+    pnh.param("/lidar_extrinsics/roll_lidar_vehicle", vehicle_roll_lidar, 0.0f);
+    pnh.param("/lidar_extrinsics/pitch_lidar_vehicle", vehicle_pitch_lidar, 0.0f);
+    pnh.param("/lidar_extrinsics/yaw_lidar_vehicle", vehicle_yaw_lidar, 0.0f);
+    Eigen::Matrix4f vehicle_T_lidar = Eigen::Matrix4f::Identity();
+    Eigen::Matrix3f vehicle_R_lidar;
+    vehicle_R_lidar = Eigen::AngleAxisf(M_PI / 180.0f * vehicle_roll_lidar, Eigen::Vector3f::UnitX()) *
+                      Eigen::AngleAxisf(M_PI / 180.0f * vehicle_pitch_lidar, Eigen::Vector3f::UnitY()) *
+                      Eigen::AngleAxisf(M_PI / 180.0f * vehicle_yaw_lidar, Eigen::Vector3f::UnitZ());
+    vehicle_T_lidar.block<3, 3>(0, 0) = vehicle_R_lidar;
+    vehicle_T_lidar(0, 3) = vehicle_x_lidar;
+    vehicle_T_lidar(1, 3) = vehicle_y_lidar;
+    vehicle_T_lidar(2, 3) = vehicle_z_lidar;
+    lidar_T_vehicle_ = vehicle_T_lidar.inverse();
+
     // Init the map point cloud and transformation with the frames manager
-    global_map_frames_manager_ = std::make_shared<GlobalMapFramesManager>(std::string(std::getenv("HOME")) + "/" + relative_folder_path_, 
-                                                                        map_name_, 
-                                                                        static_cast<std::size_t>(max_map_optimization_poses_));
+    global_map_frames_manager_ = std::make_shared<GlobalMapFramesManager>(std::string(std::getenv("HOME")) + "/" + relative_folder_path_,
+                                                                          map_name_,
+                                                                          static_cast<std::size_t>(max_map_optimization_poses_));
     map_cloud_ = global_map_frames_manager_->getMapCloud(map_voxel_size_);
     if (map_cloud_->empty())
     {
@@ -38,15 +58,15 @@ LocalizationNode::LocalizationNode(ros::NodeHandle nh)
     }
 
     // Init the ICP object to compute Point to Point alignment
-    icp_ = std::make_shared<ICPPointToPoint>(icp_max_correspondence_dist_, icp_iterations_, 
-                                            icp_mean_accepted_error_, icp_transform_epsilon_);
+    icp_ = std::make_shared<ICPPointToPoint>(icp_max_correspondence_dist_, icp_iterations_,
+                                             icp_mean_accepted_error_, icp_transform_epsilon_);
     icp_->setDebugMode(debug_);
 
     // Reference transforms
-    map_T_sensor_ = Eigen::Matrix4f::Identity();
-    odom_T_sensor_previous_ = Eigen::Matrix4f::Identity();
-    map_T_ref_ = Eigen::Matrix4f::Identity();
-    map_T_odom_ = Eigen::Matrix4f::Identity();
+    map_T_sensor_ = lidar_T_vehicle_ * Eigen::Matrix4f::Identity();
+    odom_T_sensor_previous_ = lidar_T_vehicle_ * Eigen::Matrix4f::Identity();
+    map_T_ref_ = lidar_T_vehicle_ * Eigen::Matrix4f::Identity();
+    map_T_odom_ = lidar_T_vehicle_ * Eigen::Matrix4f::Identity();
 
     // Init the cropped map in the ref frame
     ref_cropped_map_cloud_ = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
@@ -75,7 +95,7 @@ LocalizationNode::LocalizationNode(ros::NodeHandle nh)
     ROS_INFO("Localization node initialized!");
 }
 
-void LocalizationNode::compassCallback(const std_msgs::Float64::ConstPtr& msg)
+void LocalizationNode::compassCallback(const std_msgs::Float64::ConstPtr &msg)
 {
     // Invert the yaw based on Ardupilot convention that clockwise is positive
     current_compass_yaw_ = (90.0 - msg->data) * M_PI / 180.0;
@@ -90,21 +110,23 @@ void LocalizationNode::compassCallback(const std_msgs::Float64::ConstPtr& msg)
     }
 }
 
-inline void LocalizationNode::computePosePredictionFromOdometry(const nav_msgs::Odometry::ConstPtr& odom_msg,
-                                                                Eigen::Matrix4f& odom_T_sensor_current,
-                                                                Eigen::Matrix4f& map_T_sensor_current_odom) const
+inline void LocalizationNode::computePosePredictionFromOdometry(const nav_msgs::Odometry::ConstPtr &odom_msg,
+                                                                Eigen::Matrix4f &odom_T_sensor_current,
+                                                                Eigen::Matrix4f &map_T_sensor_current_odom) const
 {
     // Get the current pose of the sensor in the odometry frame
     Eigen::Quaternionf odom_q_sensor_current(odom_msg->pose.pose.orientation.w,
-                                                odom_msg->pose.pose.orientation.x,
-                                                odom_msg->pose.pose.orientation.y,
-                                                odom_msg->pose.pose.orientation.z);
+                                             odom_msg->pose.pose.orientation.x,
+                                             odom_msg->pose.pose.orientation.y,
+                                             odom_msg->pose.pose.orientation.z);
     Eigen::Vector3f odom_t_sensor_current(odom_msg->pose.pose.position.x,
-                                            odom_msg->pose.pose.position.y,
-                                            odom_msg->pose.pose.position.z);
+                                          odom_msg->pose.pose.position.y,
+                                          odom_msg->pose.pose.position.z);
     odom_T_sensor_current.setIdentity();
     odom_T_sensor_current.block<3, 3>(0, 0) = odom_q_sensor_current.toRotationMatrix();
     odom_T_sensor_current.block<3, 1>(0, 3) = odom_t_sensor_current;
+    // Apply vehicle extrinsics
+    odom_T_sensor_current = lidar_T_vehicle_ * odom_T_sensor_current;
 
     // Calculate the previous_T_current transformation matrix
     const Eigen::Matrix4f previous_T_current(odom_T_sensor_previous_.inverse() * odom_T_sensor_current);
@@ -113,7 +135,7 @@ inline void LocalizationNode::computePosePredictionFromOdometry(const nav_msgs::
     map_T_sensor_current_odom = map_T_sensor_ * previous_T_current;
 }
 
-const Eigen::Matrix4f LocalizationNode::computeGpsCoarsePoseInMapFrame(const sensor_msgs::NavSatFix::ConstPtr& gps_msg) const
+const Eigen::Matrix4f LocalizationNode::computeGpsCoarsePoseInMapFrame(const sensor_msgs::NavSatFix::ConstPtr &gps_msg) const
 {
     // Convert the compass yaw to a rotation matrix
     Eigen::Matrix3f global_R_sensor;
@@ -128,13 +150,13 @@ const Eigen::Matrix4f LocalizationNode::computeGpsCoarsePoseInMapFrame(const sen
     global_T_sensor.block<3, 3>(0, 0) = global_R_sensor;
     global_T_sensor.block<3, 1>(0, 3) = Eigen::Vector3f(utm_easting, utm_northing, table_altitude);
 
-    return map_T_global_.cast<float>() * global_T_sensor;
+    return lidar_T_vehicle_ * map_T_global_.cast<float>() * global_T_sensor;
 }
 
-inline nav_msgs::Odometry LocalizationNode::buildNavOdomMsg(const Eigen::Matrix4f& T, 
-                                                const std::string& frame_id, 
-                                                const std::string& child_frame_id, 
-                                                const ros::Time& stamp) const
+inline nav_msgs::Odometry LocalizationNode::buildNavOdomMsg(const Eigen::Matrix4f &T,
+                                                            const std::string &frame_id,
+                                                            const std::string &child_frame_id,
+                                                            const ros::Time &stamp) const
 {
     nav_msgs::Odometry odom_msg;
     odom_msg.header.stamp = stamp;
@@ -152,9 +174,9 @@ inline nav_msgs::Odometry LocalizationNode::buildNavOdomMsg(const Eigen::Matrix4
     return odom_msg;
 }
 
-void LocalizationNode::computePoseGainsFromCovarianceMatrices(const sensor_msgs::NavSatFix::ConstPtr& gps_msg,
-                                                              const nav_msgs::Odometry::ConstPtr& odom_msg,
-                                                              float& odom_gain, float& gps_gain) const
+void LocalizationNode::computePoseGainsFromCovarianceMatrices(const sensor_msgs::NavSatFix::ConstPtr &gps_msg,
+                                                              const nav_msgs::Odometry::ConstPtr &odom_msg,
+                                                              float &odom_gain, float &gps_gain) const
 {
     // If fixed just send constant value to the gains with more value to odometry
     if (pose_gains_calculation_option_)
@@ -167,12 +189,12 @@ void LocalizationNode::computePoseGainsFromCovarianceMatrices(const sensor_msgs:
     // Get covariance matrices from the messages
     Eigen::Matrix3f gps_covariance_matrix;
     gps_covariance_matrix << gps_msg->position_covariance[0], gps_msg->position_covariance[1], gps_msg->position_covariance[2],
-                             gps_msg->position_covariance[3], gps_msg->position_covariance[4], gps_msg->position_covariance[5],
-                             gps_msg->position_covariance[6], gps_msg->position_covariance[7], gps_msg->position_covariance[8];
+        gps_msg->position_covariance[3], gps_msg->position_covariance[4], gps_msg->position_covariance[5],
+        gps_msg->position_covariance[6], gps_msg->position_covariance[7], gps_msg->position_covariance[8];
     Eigen::Matrix3f odom_covariance_matrix;
     odom_covariance_matrix << odom_msg->pose.covariance[0], odom_msg->pose.covariance[1], odom_msg->pose.covariance[2],
-                              odom_msg->pose.covariance[6], odom_msg->pose.covariance[7], odom_msg->pose.covariance[8],
-                              odom_msg->pose.covariance[12], odom_msg->pose.covariance[13], odom_msg->pose.covariance[14];
+        odom_msg->pose.covariance[6], odom_msg->pose.covariance[7], odom_msg->pose.covariance[8],
+        odom_msg->pose.covariance[12], odom_msg->pose.covariance[13], odom_msg->pose.covariance[14];
     // Calculate the trace of the covariance matrices as weights
     const float odom_weight = odom_covariance_matrix.trace();
     const float gps_weight = gps_covariance_matrix.trace();
@@ -182,42 +204,44 @@ void LocalizationNode::computePoseGainsFromCovarianceMatrices(const sensor_msgs:
     gps_gain = odom_weight / total_det;
 }
 
-void LocalizationNode::velocityFilter(Eigen::Matrix4f& pose,
-                                      const Eigen::Matrix4f& previous_pose,
+void LocalizationNode::velocityFilter(Eigen::Matrix4f &pose,
+                                      const Eigen::Matrix4f &previous_pose,
                                       const float time_diff) const
 {
     // Calculate the velocity
     const Eigen::Vector3f t = pose.block<3, 1>(0, 3) - previous_pose.block<3, 1>(0, 3);
-    const Eigen::Vector3f velocity_vector = t/time_diff;
+    const Eigen::Vector3f velocity_vector = t / time_diff;
     // If the velocity is too high, filter it to max_rover_velocity_
     const float velocity_value = velocity_vector.norm();
     if (velocity_value > max_rover_velocity_)
     {
-        pose.block<3, 1>(0, 3) = previous_pose.block<3, 1>(0, 3) + max_rover_velocity_/velocity_value*t;
+        pose.block<3, 1>(0, 3) = previous_pose.block<3, 1>(0, 3) + max_rover_velocity_ / velocity_value * t;
     }
 }
 
-void LocalizationNode::initializePosesWithFirstReading(const sensor_msgs::NavSatFix::ConstPtr& gps_msg,
-                                                    const nav_msgs::Odometry::ConstPtr& odom_msg)
+void LocalizationNode::initializePosesWithFirstReading(const sensor_msgs::NavSatFix::ConstPtr &gps_msg,
+                                                       const nav_msgs::Odometry::ConstPtr &odom_msg)
 {
     // Set the map_T_sensor based on the first GPS reading
     map_T_sensor_ = computeGpsCoarsePoseInMapFrame(gps_msg);
     map_T_ref_ = map_T_sensor_;
     // Set previous odometry transformation with odometry reading
     Eigen::Quaternionf odom_q_sensor_previous(odom_msg->pose.pose.orientation.w,
-                                                odom_msg->pose.pose.orientation.x,
-                                                odom_msg->pose.pose.orientation.y,
-                                                odom_msg->pose.pose.orientation.z);
+                                              odom_msg->pose.pose.orientation.x,
+                                              odom_msg->pose.pose.orientation.y,
+                                              odom_msg->pose.pose.orientation.z);
     Eigen::Vector3f odom_t_sensor_previous(odom_msg->pose.pose.position.x,
-                                            odom_msg->pose.pose.position.y,
-                                            odom_msg->pose.pose.position.z);
+                                           odom_msg->pose.pose.position.y,
+                                           odom_msg->pose.pose.position.z);
     odom_T_sensor_previous_.setIdentity();
     odom_T_sensor_previous_.block<3, 3>(0, 0) = odom_q_sensor_previous.toRotationMatrix();
     odom_T_sensor_previous_.block<3, 1>(0, 3) = odom_t_sensor_previous;
+    // Apply vehicle extrinsics
+    odom_T_sensor_previous_ = lidar_T_vehicle_ * odom_T_sensor_previous_;
 }
 
-bool LocalizationNode::performCoarseAlignment(const pcl::PointCloud<PointT>::Ptr& scan_cloud,
-                                              const pcl::PointCloud<PointT>::Ptr& map_cloud)
+bool LocalizationNode::performCoarseAlignment(const pcl::PointCloud<PointT>::Ptr &scan_cloud,
+                                              const pcl::PointCloud<PointT>::Ptr &map_cloud)
 {
     // Perform first alignment if not aligned yet to the start of the trip in map frame
     pcl::PointCloud<PointT>::Ptr map_cloud_temp = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
@@ -246,9 +270,9 @@ bool LocalizationNode::performCoarseAlignment(const pcl::PointCloud<PointT>::Ptr
     ROS_WARN("Running brute force with ICP.");
     float best_error = 1e6f;
     icp_->setNumIterations(100);
-    for (const auto& max_corresp_dist : max_corresp_distances)
+    for (const auto &max_corresp_dist : max_corresp_distances)
     {
-        for (const auto& acceptable_mean_error : acceptable_mean_errors)
+        for (const auto &acceptable_mean_error : acceptable_mean_errors)
         {
             icp_->setMaxCorrespondenceDist(max_corresp_dist);
             icp_->setAcceptableMeanError(acceptable_mean_error);
@@ -263,8 +287,8 @@ bool LocalizationNode::performCoarseAlignment(const pcl::PointCloud<PointT>::Ptr
             }
             if (icp_result.has_converged)
             {
-                ROS_WARN("ICP alignment successfull with max_corresp_dist: %f and acceptable_mean_error: %f", 
-                        max_corresp_dist, acceptable_mean_error);
+                ROS_WARN("ICP alignment successfull with max_corresp_dist: %f and acceptable_mean_error: %f",
+                         max_corresp_dist, acceptable_mean_error);
                 icp_->setMaxCorrespondenceDist(icp_max_correspondence_dist_);
                 icp_->setTransformationEpsilon(icp_transform_epsilon_);
                 icp_->setAcceptableMeanError(icp_mean_accepted_error_);
@@ -281,9 +305,9 @@ bool LocalizationNode::performCoarseAlignment(const pcl::PointCloud<PointT>::Ptr
     return false;
 }
 
-void LocalizationNode::localizationCallback(const sensor_msgs::PointCloud2::ConstPtr& pointcloud_msg,
-                                            const sensor_msgs::NavSatFix::ConstPtr& gps_msg,
-                                            const nav_msgs::Odometry::ConstPtr& odom_msg)
+void LocalizationNode::localizationCallback(const sensor_msgs::PointCloud2::ConstPtr &pointcloud_msg,
+                                            const sensor_msgs::NavSatFix::ConstPtr &gps_msg,
+                                            const nav_msgs::Odometry::ConstPtr &odom_msg)
 {
     ///////////////////////////////////////// NODE STARTUP /////////////////////////////////////////
     // If the altitude is still wrong, we cannot proceed
@@ -335,7 +359,7 @@ void LocalizationNode::localizationCallback(const sensor_msgs::PointCloud2::Cons
             ROS_WARN("Coarse alignment not successfull, localization pose might not be precise.");
         }
     }
-    
+
     ///////////////////////////////////////// FINE ALIGNMENT /////////////////////////////////////////
     // Timestamp difference from last messages to apply filters
     const float time_diff = (odom_msg->header.stamp - previous_odom_stamp_).toSec();
@@ -351,9 +375,9 @@ void LocalizationNode::localizationCallback(const sensor_msgs::PointCloud2::Cons
     // Obtain the weighted coarse pose from GPS and Odometry fusion based on covariance
     float gps_compass_gain, odometry_gain;
     computePoseGainsFromCovarianceMatrices(gps_msg, odom_msg, odometry_gain, gps_compass_gain);
-    Eigen::Matrix4f map_T_sensor_prior = odometry_gain*map_T_sensor_odom + gps_compass_gain*map_T_sensor_gps;
+    Eigen::Matrix4f map_T_sensor_prior = odometry_gain * map_T_sensor_odom + gps_compass_gain * map_T_sensor_gps;
     velocityFilter(map_T_sensor_prior, map_T_sensor_, time_diff);
-    
+
     // Align the point clouds with ICP (will return transformation in map frame)
     icp_->setSourcePointCloud(cropped_scan_cloud);
     icp_->setInitialTransformation(map_T_sensor_prior);
