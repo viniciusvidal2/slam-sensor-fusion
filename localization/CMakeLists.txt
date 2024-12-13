@@ -42,9 +42,7 @@ include_directories(
 add_executable(localization_node src/localization_main.cpp 
               src/localization_node.cpp
               src/global_map_frames_manager.cpp
-              src/icp_point_to_point.cpp
-              src/stochastic_filter.cpp
-              src/brute_force_alignment.cpp)              
+              src/icp_point_to_point.cpp)              
 target_link_libraries(localization_node
   ${catkin_LIBRARIES}
   ${PCL_LIBRARIES}
