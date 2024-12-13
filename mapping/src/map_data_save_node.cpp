@@ -22,14 +22,21 @@ MapDataSaver::MapDataSaver(ros::NodeHandle &nh)
     pnh.param("/lidar_extrinsics/yaw_lidar_vehicle", vehicle_yaw_lidar, 0.0f);
     Eigen::Matrix4f vehicle_T_lidar = Eigen::Matrix4f::Identity();
     Eigen::Matrix3f vehicle_R_lidar;
-    vehicle_R_lidar = Eigen::AngleAxisf(M_PI/180.0f*vehicle_roll_lidar, Eigen::Vector3f::UnitX()) *
-                      Eigen::AngleAxisf(M_PI/180.0f*vehicle_pitch_lidar, Eigen::Vector3f::UnitY()) *
-                      Eigen::AngleAxisf(M_PI/180.0f*vehicle_yaw_lidar, Eigen::Vector3f::UnitZ());
+    vehicle_R_lidar = Eigen::AngleAxisf(M_PI / 180.0f * vehicle_roll_lidar, Eigen::Vector3f::UnitX()) *
+                      Eigen::AngleAxisf(M_PI / 180.0f * vehicle_pitch_lidar, Eigen::Vector3f::UnitY()) *
+                      Eigen::AngleAxisf(M_PI / 180.0f * vehicle_yaw_lidar, Eigen::Vector3f::UnitZ());
     vehicle_T_lidar.block<3, 3>(0, 0) = vehicle_R_lidar;
     vehicle_T_lidar(0, 3) = vehicle_x_lidar;
     vehicle_T_lidar(1, 3) = vehicle_y_lidar;
     vehicle_T_lidar(2, 3) = vehicle_z_lidar;
     lidar_T_vehicle_ = vehicle_T_lidar.inverse();
+
+    // Params to filter out the vehicle in the incoming reading
+    float vehicle_length, vehicle_width, vehicle_height;
+    pnh.param("/vehicle_region_box/length", vehicle_length, 0.6f);
+    pnh.param("/vehicle_region_box/width", vehicle_width, 0.6f);
+    pnh.param("/vehicle_region_box/height", vehicle_height, 1.0f);
+    vehicle_box_size_ = Eigen::Vector3f(vehicle_length, vehicle_width, vehicle_height);
 
     // Create a folder, making sure it does not exist before
     // If it exists, delete it and create it again
@@ -78,7 +85,7 @@ MapDataSaver::MapDataSaver(ros::NodeHandle &nh)
 void MapDataSaver::compassCallback(const std_msgs::Float64::ConstPtr &msg)
 {
     // Invert the yaw based on Ardupilot convention that clockwise is positive
-    current_compass_yaw_ = (90.0 - msg->data) * M_PI / 180.0;
+    current_compass_yaw_ = (90.0 - msg->data) * M_PI / 180.0; // [RAD]
     // Make sure the yaw is in the range -M_PI to M_PI
     if (current_compass_yaw_ > M_PI)
     {
@@ -105,12 +112,13 @@ void MapDataSaver::mappingCallback(const sensor_msgs::PointCloud2::ConstPtr &poi
     odom_T_lidar.block<3, 1>(0, 3) = odom_t_lidar;
     // Apply the extrinsics to the sensor frame
     Eigen::Matrix4f odom_T_vehicle = Eigen::Matrix4f::Identity();
-    odom_T_vehicle = lidar_T_vehicle_* odom_T_lidar;
+    odom_T_vehicle = lidar_T_vehicle_ * odom_T_lidar;
 
     // Transform and add the point cloud to the map
     pcl::PointCloud<PointT>::Ptr cloud = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
     pcl::fromROSMsg(*pointcloud_msg, *cloud);
     pcl::transformPointCloud(*cloud, *cloud, odom_T_vehicle);
+    filterVehicleBox(*cloud);
     *cloud_map_frame_ += *cloud;
     ++cloud_counter_;
 
@@ -160,6 +168,23 @@ void MapDataSaver::mappingCallback(const sensor_msgs::PointCloud2::ConstPtr &poi
                        << gps_msg->altitude << " "
                        << current_compass_yaw_ << std::endl;
     gps_imu_poses_file.close();
+}
+
+void MapDataSaver::filterVehicleBox(pcl::PointCloud<PointT> &cloud)
+{
+    // Temp cloud to store points outside of vehicle box
+    pcl::PointCloud<PointT>::Ptr cloud_filtered(new pcl::PointCloud<PointT>);
+    for (const auto &point : cloud.points)
+    {
+        if (point.x < -vehicle_box_size_.x() / 2.0 || point.x > vehicle_box_size_.x() / 2.0 ||
+            point.y < -vehicle_box_size_.y() / 2.0 || point.y > vehicle_box_size_.y() / 2.0 ||
+            point.z > vehicle_box_size_.z())
+        {
+            cloud_filtered->push_back(point);
+        }
+    }
+    // Update the input cloud
+    cloud = *cloud_filtered;
 }
 
 void MapDataSaver::onShutdown()
