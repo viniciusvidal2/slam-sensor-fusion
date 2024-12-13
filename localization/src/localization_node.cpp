@@ -305,6 +305,23 @@ bool LocalizationNode::performCoarseAlignment(const pcl::PointCloud<PointT>::Ptr
     return false;
 }
 
+void LocalizationNode::filterVehicleBox(pcl::PointCloud<PointT> &cloud)
+{
+    // Temp cloud to store points outside of vehicle box
+    pcl::PointCloud<PointT>::Ptr cloud_filtered(new pcl::PointCloud<PointT>);
+    for (const auto &point : cloud.points)
+    {
+        if (point.x < -vehicle_box_size_.x() / 2.0 || point.x > vehicle_box_size_.x() / 2.0 ||
+            point.y < -vehicle_box_size_.y() / 2.0 || point.y > vehicle_box_size_.y() / 2.0 ||
+            point.z > vehicle_box_size_.z())
+        {
+            cloud_filtered->push_back(point);
+        }
+    }
+    // Update the input cloud
+    cloud = *cloud_filtered;
+}
+
 void LocalizationNode::localizationCallback(const sensor_msgs::PointCloud2::ConstPtr &pointcloud_msg,
                                             const sensor_msgs::NavSatFix::ConstPtr &gps_msg,
                                             const nav_msgs::Odometry::ConstPtr &odom_msg)
@@ -336,6 +353,8 @@ void LocalizationNode::localizationCallback(const sensor_msgs::PointCloud2::Cons
     pcl::PointCloud<PointT>::Ptr scan_cloud = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
     pcl::fromROSMsg(*pointcloud_msg, *scan_cloud);
     applyUniformSubsample(scan_cloud, 2);
+    // Apply filter to remove vehicle points
+    filterVehicleBox(*scan_cloud);
 
     // Crop the input scan around the sensor frame origin
     pcl::PointCloud<PointT>::Ptr cropped_scan_cloud = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
