@@ -31,7 +31,7 @@ ObstaclePointCloudGeneratorNode::ObstaclePointCloudGeneratorNode(ros::NodeHandle
     map_point_cloud_pub_ = nh.advertise<sensor_msgs::PointCloud2>("/localization/obstacle_search_map", 10);
 
     // Initialize synchronized subscribers
-    pointcloud_sub_.subscribe(nh, "/cloud_registered_body", 3);
+    pointcloud_sub_.subscribe(nh, "/lidar_odometry/cloud_registered_body", 3);
     odom_sub_.subscribe(nh, "/localization/map_T_sensor", 3);
     sync_.reset(new message_filters::Synchronizer<SyncPolicy>(
         SyncPolicy(3), pointcloud_sub_, odom_sub_));

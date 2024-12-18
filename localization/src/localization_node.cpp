@@ -85,9 +85,9 @@ LocalizationNode::LocalizationNode(ros::NodeHandle nh)
         10, &LocalizationNode::compassCallback, this);
 
     // Initialize synchronized subscribers
-    pointcloud_sub_.subscribe(nh, "/cloud_registered_body", 3);
+    pointcloud_sub_.subscribe(nh, "/lidar_odometry/cloud_registered_body", 3);
     gps_sub_.subscribe(nh, "/mavros/global_position/global", 3);
-    odom_sub_.subscribe(nh, "/Odometry", 3);
+    odom_sub_.subscribe(nh, "/lidar_odometry/odometry", 3);
     sync_.reset(new message_filters::Synchronizer<SyncPolicy>(
         SyncPolicy(3), pointcloud_sub_, gps_sub_, odom_sub_));
     sync_->registerCallback(boost::bind(&LocalizationNode::localizationCallback, this, _1, _2, _3));

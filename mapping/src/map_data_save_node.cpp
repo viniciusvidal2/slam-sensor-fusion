@@ -69,9 +69,9 @@ MapDataSaver::MapDataSaver(ros::NodeHandle &nh)
         &MapDataSaver::compassCallback, this);
 
     // Initialize synchronized subscribers
-    pointcloud_sub_.subscribe(nh, "/cloud_registered_body", 10);
+    pointcloud_sub_.subscribe(nh, "/lidar_odometry/cloud_registered_body", 10);
     gps_sub_.subscribe(nh, "/mavros/global_position/global", 10);
-    odom_sub_.subscribe(nh, "/Odometry", 10);
+    odom_sub_.subscribe(nh, "/lidar_odometry/odometry", 10);
     sync_.reset(new message_filters::Synchronizer<SyncPolicy>(
         SyncPolicy(50), pointcloud_sub_, gps_sub_, odom_sub_));
     sync_->registerCallback(boost::bind(&MapDataSaver::mappingCallback, this, _1, _2, _3));
